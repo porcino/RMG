@@ -18,7 +18,7 @@
 
 using namespace UserInterface;
 
-MainDialog::MainDialog(QWidget* parent, Thread::SDLThread* sdlThread) : QDialog(parent)
+MainDialog::MainDialog(QWidget* parent, Thread::SDLThread* sdlThread, bool romConfig) : QDialog(parent)
 {
     this->setupUi(this);
     this->setWindowIcon(QIcon(":Resource/RMG.png"));
@@ -41,7 +41,8 @@ MainDialog::MainDialog(QWidget* parent, Thread::SDLThread* sdlThread) : QDialog(
     for (int i = 0; i < this->tabWidget->count(); i++)
     {
         Widget::ControllerWidget* widget = new Widget::ControllerWidget(this, this->eventFilter);
-        widget->SetSettingsSection("Rosalie's Mupen GUI - Input Plugin Profile " + QString::number(i));
+        widget->SetOnlyLoadGameProfile(romConfig);
+        widget->SetSettingsSection("Player " + QString::number(i + 1), "Rosalie's Mupen GUI - Input Plugin Profile " + QString::number(i));
         widget->LoadSettings();
         this->tabWidget->widget(i)->layout()->addWidget(widget);
         controllerWidgets.push_back(widget);
@@ -49,12 +50,19 @@ MainDialog::MainDialog(QWidget* parent, Thread::SDLThread* sdlThread) : QDialog(
             &MainDialog::on_ControllerWidget_CurrentInputDeviceChanged);
         connect(widget, &Widget::ControllerWidget::RefreshInputDevicesButtonClicked, this,
             &MainDialog::on_ControllerWidget_RefreshInputDevicesButtonClicked);
+        connect(widget, &Widget::ControllerWidget::UserProfileAdded, this,
+            &MainDialog::on_ControllerWidget_UserProfileAdded);
+        connect(widget, &Widget::ControllerWidget::UserProfileRemoved, this,
+            &MainDialog::on_ControllerWidget_UserProfileRemoved);
     }
 
     // always add keyboard device
     for (auto& controllerWidget : this->controllerWidgets)
     {
-        controllerWidget->AddInputDevice("Keyboard", -1);
+        controllerWidget->AddInputDevice("None",      (int)InputDeviceType::None);
+        controllerWidget->AddInputDevice("Automatic", (int)InputDeviceType::Automatic);
+        controllerWidget->AddInputDevice("Keyboard",  (int)InputDeviceType::Keyboard);
+        controllerWidget->SetInitialized(true);
     }
 
     // fill device list at least once
@@ -90,30 +98,50 @@ void MainDialog::openInputDevice(QString deviceName, int deviceNum)
 {
     SDL_JoystickID joystickId;
     Widget::ControllerWidget* controllerWidget;
-    controllerWidget = controllerWidgets.at(this->tabWidget->currentIndex());
+    controllerWidget = this->controllerWidgets.at(this->tabWidget->currentIndex());
 
     // we don't need to open a keyboard
-    if (deviceNum == -1)
+    if (deviceNum == (int)InputDeviceType::None ||
+        deviceNum == (int)InputDeviceType::Keyboard)
     {
-        currentDeviceName = "";
-        currentDeviceNum = -1;
-        controllerWidget->SetCurrentJoystickID(-1);
+        this->currentDeviceName = "";
+        this->currentDeviceNum  = deviceNum;
+        controllerWidget->SetCurrentJoystickID(this->currentDeviceNum);
         return;
+    }
+
+    // handle automatic mode
+    if (deviceNum == (int)InputDeviceType::Automatic)
+    {
+        int currentIndex = this->tabWidget->currentIndex();
+        if (currentIndex < this->inputDeviceList.size())
+        { // use device when there's one
+            deviceNum = this->inputDeviceList.at(currentIndex).deviceNum;
+        }
+        else
+        { // no device found, fallback to keyboard
+            this->currentDeviceName = "";
+            this->currentDeviceNum  = (int)InputDeviceType::Keyboard;
+            controllerWidget->SetCurrentJoystickID(this->currentDeviceNum);
+            return;
+        }
     }
 
     if (SDL_IsGameController(deviceNum) == SDL_TRUE)
     {
-        currentJoystick = nullptr;
-        currentController = SDL_GameControllerOpen(deviceNum);
+        this->currentJoystick = nullptr;
+        this->currentController = SDL_GameControllerOpen(deviceNum);
     }
     else
     {
-        currentJoystick = SDL_JoystickOpen(deviceNum);
-        currentController = nullptr;
+        this->currentJoystick = SDL_JoystickOpen(deviceNum);
+        this->currentController = nullptr;
     }
-    currentDeviceNum = deviceNum;
+
+    this->currentDeviceNum = deviceNum;
     joystickId = SDL_JoystickGetDeviceInstanceID(deviceNum);
     controllerWidget->SetCurrentJoystickID(joystickId);
+    controllerWidget->SetIsCurrentJoystickGameController(currentController != nullptr);
 }
 
 void MainDialog::closeInputDevice()
@@ -193,8 +221,9 @@ void MainDialog::on_ControllerWidget_CurrentInputDeviceChanged(ControllerWidget*
     this->closeInputDevice();
 
     // only open device,
-    // when it's not a keyboard
-    if (deviceNum != -1)
+    // when needed
+    if (deviceNum != (int)InputDeviceType::None &&
+        deviceNum != (int)InputDeviceType::Keyboard)
     {
         this->openInputDevice(deviceName, deviceNum);
     }
@@ -212,21 +241,54 @@ void MainDialog::on_ControllerWidget_RefreshInputDevicesButtonClicked()
     this->sdlThread->SetAction(SDLThreadAction::GetInputDevices);
 }
 
+void MainDialog::on_ControllerWidget_UserProfileAdded(QString name, QString section)
+{
+    for (auto& controllerWidget : this->controllerWidgets)
+    {
+        controllerWidget->AddUserProfile(name, section);
+    }
+}
+
+void MainDialog::on_ControllerWidget_UserProfileRemoved(QString name, QString section)
+{
+    for (auto& controllerWidget : this->controllerWidgets)
+    {
+        controllerWidget->RemoveUserProfile(name, section);
+    }
+}
+
 void MainDialog::on_tabWidget_currentChanged(int index)
 {
     QString deviceName;
-    int deviceNum;
+    int     deviceNum;
+    Widget::ControllerWidget* controllerWidget;
 
-    Widget::ControllerWidget* controllerWidget = controllerWidgets.at(index);
+    // save previous tab's user profile
+    if (previousTabWidgetIndex != -1 &&
+        previousTabWidgetIndex != index)
+    {
+        controllerWidget = controllerWidgets.at(previousTabWidgetIndex);
+        controllerWidget->SaveUserProfileSettings();
+    }
+
+    // update previous index
+    previousTabWidgetIndex = index;
+
+    // prepare switched tab
+    controllerWidget = controllerWidgets.at(index);
     controllerWidget->ClearControllerImage();
 
     this->closeInputDevice();
 
+    // re-load user profile settings
+    controllerWidget->LoadUserProfileSettings();
+
+    // retrieve current input device
     controllerWidget->GetCurrentInputDevice(deviceName, deviceNum);
 
-    // only open device,
-    // when it's not a keyboard
-    if (deviceNum != -1)
+    // only open device when needed
+    if (deviceNum != (int)InputDeviceType::None &&
+        deviceNum != (int)InputDeviceType::Keyboard)
     {
         this->openInputDevice(deviceName, deviceNum);
     }
@@ -309,19 +371,37 @@ void MainDialog::on_EventFilter_KeyReleased(QKeyEvent *event)
     SDL_PeepEvents(&sdlEvent, 1, SDL_ADDEVENT, 0, 0);
 }
 
-void MainDialog::on_buttonBox_clicked(QAbstractButton *button)
+void MainDialog::accept(void)
 {
-    QPushButton *pushButton = (QPushButton *)button;
-    QPushButton *okButton = this->buttonBox->button(QDialogButtonBox::Ok);
+    Widget::ControllerWidget* controllerWidget;
+    int currentIndex = this->tabWidget->currentIndex();
 
-    if (pushButton == okButton)
+    for (int i = 0; i < this->controllerWidgets.count(); i++)
     {
-        for (auto& controllerWidget : this->controllerWidgets)
+        if (i != currentIndex)
         {
+            controllerWidget = this->controllerWidgets.at(i);
             controllerWidget->SaveSettings();
         }
-
-        CoreSettingsSave();
     }
+
+    // the widget which has focus should be saved last
+    controllerWidget = this->controllerWidgets.at(currentIndex);
+    controllerWidget->SaveSettings();
+
+    CoreSettingsSave();
+
+    QDialog::accept();
 }
 
+void MainDialog::reject(void)
+{
+    for (auto& controllerWidget : this->controllerWidgets)
+    {
+        controllerWidget->RevertSettings();
+    }
+
+    CoreSettingsSave();
+
+    QDialog::reject();
+}

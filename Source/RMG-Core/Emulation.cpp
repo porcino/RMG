@@ -54,6 +54,7 @@ static void apply_coresettings_overlay(void)
     CoreSettingsSetValue(SettingsID::Core_CountPerOp, CoreSettingsGetIntValue(SettingsID::CoreOverlay_CountPerOp));
     CoreSettingsSetValue(SettingsID::Core_CountPerOpDenomPot, CoreSettingsGetIntValue(SettingsID::CoreOverlay_CountPerOpDenomPot));
     CoreSettingsSetValue(SettingsID::Core_SiDmaDuration, CoreSettingsGetIntValue(SettingsID::CoreOverlay_SiDmaDuration));
+    CoreSettingsSetValue(SettingsID::Core_SaveFileNameFormat, CoreSettingsGetIntValue(SettingsID::CoreOverLay_SaveFileNameFormat));
 }
 
 static void apply_game_coresettings_overlay(void)
@@ -90,7 +91,8 @@ static void apply_game_coresettings_overlay(void)
 bool CoreStartEmulation(std::filesystem::path n64rom, std::filesystem::path n64ddrom)
 {
     std::string error;
-    m64p_error ret;
+    m64p_error  ret;
+    CoreRomType type;
 
     if (!CoreOpenRom(n64rom))
     {
@@ -126,8 +128,17 @@ bool CoreStartEmulation(std::filesystem::path n64rom, std::filesystem::path n64d
         return false;
     }
 
+    if (!CoreGetRomType(type))
+    {
+        CoreClearCheats();
+        CoreDetachPlugins();
+        CoreApplyPluginSettings();
+        CoreCloseRom();
+        return false;
+    }
+
     // set disk file in media loader when ROM is a cartridge
-    if (CoreGetRomType() == CoreRomType::Cartridge)
+    if (type == CoreRomType::Cartridge)
     {
         CoreMediaLoaderSetDiskFile(n64ddrom);
     }
@@ -156,6 +167,9 @@ bool CoreStartEmulation(std::filesystem::path n64rom, std::filesystem::path n64d
 
     // restore plugin settings
     CoreApplyPluginSettings();
+
+    // reset media loader state
+    CoreResetMediaLoader();
 
 #ifdef DISCORD_RPC
     CoreDiscordRpcUpdate(false);

@@ -18,6 +18,7 @@
 
 #include "m64p/PluginApi.hpp"
 #include "osal/osal_dynlib.hpp"
+#include "osal/osal_files.hpp"
 
 #include "m64p/PluginApi.cpp"
 #include "m64p/Api.hpp"
@@ -131,6 +132,54 @@ std::string get_plugin_context_name(CorePluginType type)
     return name;
 }
 
+std::string get_plugin_path(CorePluginType type, std::string settingsValue)
+{
+    std::string pluginPath;
+    std::string path;
+    std::string typeName;
+
+    // return an empty string when the value is empty
+    if (settingsValue.empty())
+    {
+        return std::string();
+    }
+
+    pluginPath = CoreGetPluginDirectory().string();
+
+    // if the full plugin path is in the settings value,
+    // we know it's the old type
+    if (settingsValue.find(pluginPath) != std::string::npos)
+    {
+        return settingsValue;
+    }
+
+    switch (type)
+    {
+    case CorePluginType::Rsp:
+        typeName = "RSP";
+        break;
+    case CorePluginType::Gfx:
+        typeName = "GFX";
+        break;
+    case CorePluginType::Audio:
+        typeName = "Audio";
+        break;
+    case CorePluginType::Input:
+        typeName = "Input";
+        break;
+    default:
+        return path;
+    }
+
+    path = pluginPath;
+    path += OSAL_FILES_DIR_SEPERATOR_STR;
+    path += typeName;
+    path += OSAL_FILES_DIR_SEPERATOR_STR;
+    path += settingsValue;
+
+    return path;
+}
+
 bool apply_plugin_settings(std::string pluginSettings[4])
 {
     std::string            error;
@@ -142,14 +191,13 @@ bool apply_plugin_settings(std::string pluginSettings[4])
 
     for (int i = 0; i < 4; i++)
     {
-        settingValue = pluginSettings[i];
+        pluginType = (CorePluginType)(i + 1);
+        settingValue = get_plugin_path(pluginType, pluginSettings[i]);
         if (settingValue.empty() ||
             !std::filesystem::is_regular_file(settingValue))
         { // skip invalid setting value
             continue;
         }
-
-        pluginType = (CorePluginType)(i + 1);
 
         // copy context string to a c string using strcpy
         std::strcpy(l_PluginContext[(int)pluginType], get_plugin_context_name(pluginType).c_str());
@@ -237,6 +285,78 @@ bool apply_plugin_settings(std::string pluginSettings[4])
     return true;
 }
 
+bool open_plugin_config(CorePluginType type, bool romConfig)
+{
+    std::string error;
+    m64p_error ret;
+    bool resumeEmulation = false;
+    m64p::PluginApi* plugin;
+    std::string functionName;
+
+    if (!romConfig && !CorePluginsHasConfig(type))
+    {
+        error = "open_plugin_config Failed: ";
+        error += get_plugin_type_name(type);
+        error += " doesn't have the config or config2 function!";
+        CoreSetError(error);
+        return false;
+    }
+    else if (romConfig && !CorePluginsHasROMConfig(type))
+    {
+        error = "open_plugin_config Failed: ";
+        error += get_plugin_type_name(type);
+        error += " doesn't support ROM specific configuration!";
+        CoreSetError(error);
+        return false;
+    }
+
+    // try to pause emulation,
+    // when emulation is running
+    // and try to resume afterwards
+    if (CoreIsEmulationRunning())
+    {
+        // only resume emulation
+        // after running the config function
+        // when pausing succeeds
+        resumeEmulation = CorePauseEmulation();
+    }
+
+    plugin = get_plugin(type);
+
+    // check if the plugin has the Config2
+    // or Config function, the Config2 function
+    // has priority
+    if (plugin->Config2 != nullptr)
+    {
+        ret = plugin->Config2(romConfig ? 1 : 0);
+        functionName = "Config2";
+    }
+    else
+    {
+        ret = plugin->Config();
+        functionName = "Config";
+    }
+
+    if (ret != M64ERR_SUCCESS)
+    {
+        error = "CorePluginsOpenConfig (";
+        error += get_plugin_type_name(type);
+        error += ")->";
+        error += functionName;
+        error += "() Failed: ";
+        error += m64p::Core.ErrorMessage(ret);
+        CoreSetError(error);
+    }
+
+    // try to resume emulation when needed
+    if (resumeEmulation)
+    {
+        CoreResumeEmulation();
+    }
+
+    return ret == M64ERR_SUCCESS;
+}
+
 //
 // Exported Functions
 //
@@ -252,6 +372,7 @@ std::vector<CorePlugin> CoreGetAllPlugins(void)
     for (const auto& entry : std::filesystem::recursive_directory_iterator(CoreGetPluginDirectory()))
     {
         std::string path = entry.path().string();
+        std::string file = entry.path().filename().string();
         if (!entry.is_directory() &&
             path.ends_with(OSAL_DYNLIB_LIB_EXT_STR))
         {
@@ -272,7 +393,7 @@ std::vector<CorePlugin> CoreGetAllPlugins(void)
                 continue;
             }
 
-            CorePlugin corePlugin = {path, plugin_name, plugin_type};
+            CorePlugin corePlugin = {file, plugin_name, plugin_type};
             plugins.emplace_back(corePlugin);
         }
     }
@@ -335,52 +456,33 @@ bool CoreArePluginsReady(void)
 
 bool CorePluginsHasConfig(CorePluginType type)
 {
-    return get_plugin(type)->Config != nullptr;
+    m64p::PluginApi* plugin;
+
+    plugin = get_plugin(type);
+
+    return plugin->Config != nullptr ||
+            plugin->Config2 != nullptr;
 }
 
 bool CorePluginsOpenConfig(CorePluginType type)
 {
-    std::string error;
-    m64p_error ret;
-    bool resumeEmulation = false;
+    return open_plugin_config(type, false);
+}
 
-    if (!CorePluginsHasConfig(type))
-    {
-        error = "CorePluginsOpenConfig Failed: ";
-        error += get_plugin_type_name(type);
-        error += " doesn't have config function!";
-        CoreSetError(error);
-        return false;
-    }
+bool CorePluginsHasROMConfig(CorePluginType type)
+{
+    m64p::PluginApi* plugin;
 
-    // try to pause emulation,
-    // when emulation is running
-    // and try to resume afterwards
-    if (CoreIsEmulationRunning())
-    {
-        // only resume emulation
-        // after running the config function
-        // when pausing succeeds
-        resumeEmulation = CorePauseEmulation();
-    }
+    plugin = get_plugin(type);
 
-    ret = get_plugin(type)->Config();
-    if (ret != M64ERR_SUCCESS)
-    {
-        error = "CorePluginsOpenConfig (";
-        error += get_plugin_type_name(type);
-        error += ")->Config() Failed: ";
-        error += m64p::Core.ErrorMessage(ret);
-        CoreSetError(error);
-    }
+    return plugin->Config2 != nullptr &&
+            plugin->Config2HasRomConfig != nullptr &&
+            plugin->Config2HasRomConfig() > 0;
+}
 
-    // try to resume emulation when needed
-    if (resumeEmulation)
-    {
-        CoreResumeEmulation();
-    }
-
-    return ret == M64ERR_SUCCESS;
+bool CorePluginsOpenROMConfig(CorePluginType type)
+{
+    return open_plugin_config(type, true);
 }
 
 bool CoreAttachPlugins(void)

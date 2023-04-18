@@ -24,7 +24,8 @@ struct OptionsDialogSettings
 
     // UI settings
     bool RemoveDuplicateMappings = false;
-    bool InvertAxis = false;
+    bool FilterEventsForButtons  = true;
+    bool FilterEventsForAxis     = true;
 };
 
 namespace UserInterface

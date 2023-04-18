@@ -24,6 +24,7 @@ set(RMG_CORE_SOURCES
     ConvertStringEncoding.cpp
     Settings/Settings.cpp
     SpeedLimiter.cpp
+    SpeedFactor.cpp
     RomSettings.cpp
     Directories.cpp
     MediaLoader.cpp
@@ -79,6 +80,7 @@ endif(WIN32)
 
 target_link_libraries(RMG-Core
     ${MINIZIP_LIBRARIES}
+    7Zip
 )
 
 if (DISCORD_RPC)

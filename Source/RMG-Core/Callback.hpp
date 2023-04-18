@@ -32,6 +32,26 @@ enum class CoreDebugMessageType
     Verbose = 5
 };
 
-bool CoreSetupCallbacks(std::function<void(enum CoreDebugMessageType, std::string, std::string)> debugCallbackFunc);
+enum class CoreStateCallbackType
+{
+    EmulationState = 1,
+    VideoMode,
+    SaveStateSlot,
+    SpeedFactor,
+    SpeedLimiter,
+    VideoSize,
+    AudioVolume,
+    AudioMute,
+    GamesharkInput,
+    SaveStateLoaded,
+    SaveStateSaved,
+};
+
+// attempts to setup callbacks with the provided functions
+bool CoreSetupCallbacks(std::function<void(enum CoreDebugMessageType, std::string, std::string)> debugCallbackFunc,
+                        std::function<void(enum CoreStateCallbackType, int)> stateCallbackFunc);
+
+// sets whether the debug callbacks will be printed to stdout
+void CoreSetPrintDebugCallback(bool enabled);
 
 #endif // CORE_CALLBACK_HPP

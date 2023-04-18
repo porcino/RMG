@@ -122,6 +122,7 @@ static std::vector<std::string> l_keyList;
 #define SETTING_SECTION_GB          SETTING_SECTION_CORE " Gameboy"
 #define SETTING_SECTION_M64P        "Core"
 #define SETTING_SECTION_AUDIO       SETTING_SECTION_GUI  " - Audio Plugin"
+#define SETTING_SECTION_INPUT       SETTING_SECTION_GUI  " - Input Plugin"
 
 // retrieves l_Setting from settingId
 static l_Setting get_setting(SettingsID settingId)
@@ -139,9 +140,6 @@ static l_Setting get_setting(SettingsID settingId)
         break;
     case SettingsID::GUI_SettingsDialogHeight:
         setting = {SETTING_SECTION_GUI, "SettingsDialogHeight", 0};
-        break;
-    case SettingsID::GUI_AllowManualResizing:
-        setting = {SETTING_SECTION_GUI, "AllowManualResizing", true};
         break;
     case SettingsID::GUI_HideCursorInEmulation:
         setting = {SETTING_SECTION_GUI, "HideCursorInEmulation", false};
@@ -164,20 +162,44 @@ static l_Setting get_setting(SettingsID settingId)
     case SettingsID::GUI_ShowVerboseLogMessages:
         setting = {SETTING_SECTION_GUI, "ShowVerboseLogMessages", false};
         break;
+    case SettingsID::GUI_OnScreenDisplayEnabled:
+        setting = {SETTING_SECTION_GUI, "OnScreenDisplayEnabled", true};
+        break;
+    case SettingsID::GUI_OnScreenDisplayLocation:
+        setting = {SETTING_SECTION_GUI, "OnScreenDisplayLocation", 0};
+        break;
+    case SettingsID::GUI_OnScreenDisplayPaddingX:
+        setting = {SETTING_SECTION_GUI, "OnScreenDisplayPaddingX", 20};
+        break;
+    case SettingsID::GUI_OnScreenDisplayPaddingY:
+        setting = {SETTING_SECTION_GUI, "OnScreenDisplayPaddingY", 20};
+        break;
+    case SettingsID::GUI_OnScreenDisplayOpacity:
+        setting = {SETTING_SECTION_GUI, "OnScreenDisplayOpacity", 0.5f};
+        break;
+    case SettingsID::GUI_OnScreenDisplayDuration:
+        setting = {SETTING_SECTION_GUI, "OnScreenDisplayDuration", 3};
+        break;
     case SettingsID::GUI_Toolbar:
         setting = {SETTING_SECTION_GUI, "Toolbar", true};
+        break;
+    case SettingsID::GUI_ToolbarArea:
+        setting = {SETTING_SECTION_GUI, "ToolbarArea", 0};
         break;
     case SettingsID::GUI_StatusBar:
         setting = {SETTING_SECTION_GUI, "StatusBar", true};
         break;
-    case SettingsID::GUI_Style:
-        setting = {SETTING_SECTION_GUI, "Style", ""};
+    case SettingsID::GUI_Theme:
+        setting = {SETTING_SECTION_GUI, "Theme", "Native"};
         break;
     case SettingsID::GUI_IconTheme:
-        setting = {SETTING_SECTION_GUI, "IconTheme", "black"};
+        setting = {SETTING_SECTION_GUI, "IconTheme", "Automatic"};
         break;
     case SettingsID::GUI_CheckForUpdates:
         setting = {SETTING_SECTION_GUI, "CheckForUpdates", true};
+        break;
+    case SettingsID::GUI_LastUpdateCheck:
+        setting = {SETTING_SECTION_GUI, "LastUpdateCheck", ""};
         break;
     case SettingsID::GUI_DiscordRpc:
         setting = {SETTING_SECTION_GUI, "DiscordRpc", true};
@@ -189,36 +211,36 @@ static l_Setting get_setting(SettingsID settingId)
     case SettingsID::Core_GFX_Plugin:
         setting = {SETTING_SECTION_CORE, "GFX_Plugin", 
 #ifdef _WIN32
-                    CoreGetPluginDirectory().string() + "\\GFX\\mupen64plus-video-GLideN64.dll",
+                    "mupen64plus-video-GLideN64.dll",
 #else
-                    CoreGetPluginDirectory().string() + "/GFX/mupen64plus-video-GLideN64.so", 
+                    "mupen64plus-video-GLideN64.so",
 #endif // _WIN32
                   };
         break;
     case SettingsID::Core_AUDIO_Plugin:
         setting = {SETTING_SECTION_CORE, "AUDIO_Plugin", 
 #ifdef _WIN32
-                    CoreGetPluginDirectory().string() + "\\Audio\\RMG-Audio.dll",
+                    "RMG-Audio.dll",
 #else
-                    CoreGetPluginDirectory().string() + "/Audio/RMG-Audio.so",
+                    "RMG-Audio.so",
 #endif // _WIN32
                   };
         break;
     case SettingsID::Core_INPUT_Plugin:
         setting = {SETTING_SECTION_CORE, "INPUT_Plugin", 
 #ifdef _WIN32
-                    CoreGetPluginDirectory().string() + "\\Input\\RMG-Input.dll",
+                    "RMG-Input.dll",
 #else
-                    CoreGetPluginDirectory().string() + "/Input/RMG-Input.so",
+                    "RMG-Input.so",
 #endif // _WIN32
                   };
         break;
     case SettingsID::Core_RSP_Plugin:
         setting = {SETTING_SECTION_CORE, "RSP_Plugin", 
 #ifdef _WIN32
-                    CoreGetPluginDirectory().string() + "\\RSP\\mupen64plus-rsp-hle.dll",
+                    "mupen64plus-rsp-hle.dll",
 #else
-                    CoreGetPluginDirectory().string() + "/RSP/mupen64plus-rsp-hle.so",
+                    "mupen64plus-rsp-hle.so",
 #endif // _WIN32
                   };
         break;
@@ -258,6 +280,9 @@ static l_Setting get_setting(SettingsID settingId)
     case SettingsID::Core_SiDmaDuration:
         setting = {SETTING_SECTION_M64P, "SiDmaDuration", -1};
         break;
+    case SettingsID::Core_SaveFileNameFormat:
+        setting = {SETTING_SECTION_M64P, "SaveFilenameFormat", 1};
+        break;
 
     case SettingsID::CoreOverlay_RandomizeInterrupt:
         setting = {SETTING_SECTION_OVERLAY, "RandomizeInterrupt", true};
@@ -279,6 +304,9 @@ static l_Setting get_setting(SettingsID settingId)
         break;
     case SettingsID::CoreOverlay_SiDmaDuration:
         setting = {SETTING_SECTION_OVERLAY, "SiDmaDuration", -1};
+        break;
+    case SettingsID::CoreOverLay_SaveFileNameFormat:
+        setting = {SETTING_SECTION_OVERLAY, "SaveFilenameFormat", 1};
         break;
 
     case SettingsID::Core_ScreenshotPath:
@@ -404,6 +432,42 @@ static l_Setting get_setting(SettingsID settingId)
     case SettingsID::KeyBinding_LimitFPS:
         setting = {SETTING_SECTION_KEYBIND, "LimitFPS", "F4"};
         break;
+    case SettingsID::KeyBinding_SpeedFactor25:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor25", "Alt+0"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor50:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor50", "Alt+1"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor75:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor75", "Alt+2"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor100:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor100", "Alt+3"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor125:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor125", "Alt+4"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor150:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor150", "Alt+5"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor175:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor175", "Alt+6"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor200:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor200", "Alt+7"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor225:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor225", "Alt+8"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor250:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor250", "Alt+9"};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor275:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor275", "Alt+["};
+        break;
+    case SettingsID::KeyBinding_SpeedFactor300:
+        setting = {SETTING_SECTION_KEYBIND, "SpeedFactor300", "Alt+]"};
+        break;
     case SettingsID::KeyBinding_SaveState:
         setting = {SETTING_SECTION_KEYBIND, "SaveState", "F5"};
         break;
@@ -455,6 +519,21 @@ static l_Setting get_setting(SettingsID settingId)
     case SettingsID::KeyBinding_Fullscreen:
         setting = {SETTING_SECTION_KEYBIND, "Fullscreen", "Alt+Return"};
         break;
+    case SettingsID::Keybinding_ViewLog:
+        setting = {SETTING_SECTION_KEYBIND, "ViewLog", "Ctrl+L"};
+        break;
+    case SettingsID::KeyBinding_GraphicsSettings:
+        setting = {SETTING_SECTION_KEYBIND, "GraphicsSettings", "Ctrl+G"};
+        break;
+    case SettingsID::KeyBinding_AudioSettings:
+        setting = {SETTING_SECTION_KEYBIND, "AudioSettings", "Ctrl+A"};
+        break;
+    case SettingsID::KeyBinding_RspSettings:
+        setting = {SETTING_SECTION_KEYBIND, "RspSettings", "Ctrl+R"};
+        break;
+    case SettingsID::KeyBinding_InputSettings:
+        setting = {SETTING_SECTION_KEYBIND, "InputSettings", "Ctrl+I"};
+        break;
     case SettingsID::KeyBinding_Settings:
         setting = {SETTING_SECTION_KEYBIND, "Settings", "Ctrl+T"};
         break;
@@ -465,17 +544,26 @@ static l_Setting get_setting(SettingsID settingId)
     case SettingsID::RomBrowser_Geometry:
         setting = {SETTING_SECTION_ROMBROWSER, "Geometry", ""};
         break;
+    case SettingsID::RomBrowser_Maximized:
+        setting = {SETTING_SECTION_ROMBROWSER, "Maximized", false};
+        break;
     case SettingsID::RomBrowser_Recursive:
         setting = {SETTING_SECTION_ROMBROWSER, "Recursive", true};
         break;
     case SettingsID::RomBrowser_MaxItems:
         setting = {SETTING_SECTION_ROMBROWSER, "MaxItems", 250};
         break;
-    case SettingsID::RomBrowser_Columns:
-        setting = {SETTING_SECTION_ROMBROWSER, "Columns", std::vector<int>({0, 1, 2})};
+    case SettingsID::RomBrowser_ColumnVisibility:
+        setting = {SETTING_SECTION_ROMBROWSER, "ColumnVisibility", std::vector<int>({1, 1, 1, 0, 0, 0, 0, 0, 0})};
+        break;
+    case SettingsID::RomBrowser_ColumnOrder:
+        setting = {SETTING_SECTION_ROMBROWSER, "ColumnOrder", std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7, 8})};
         break;
     case SettingsID::RomBrowser_ColumnSizes:
-        setting = {SETTING_SECTION_ROMBROWSER, "ColumnSizes", std::vector<int>({-1, -1, -1})};
+        setting = {SETTING_SECTION_ROMBROWSER, "ColumnSizes", std::vector<int>({-1, -1, -1, -1, -1, -1, -1, -1, -1})};
+        break;
+    case SettingsID::RomBrowser_SortAfterSearch:
+        setting = {SETTING_SECTION_ROMBROWSER, "SortAfterSearch", true};
         break;
     case SettingsID::RomBrowser_ViewMode:
         setting = {SETTING_SECTION_ROMBROWSER, "ViewMode", 0};
@@ -528,6 +616,15 @@ static l_Setting get_setting(SettingsID settingId)
         setting = {SETTING_SECTION_AUDIO, "Synchronize", false};
         break;
 
+    case SettingsID::Input_Profiles:
+        setting = {SETTING_SECTION_INPUT, "Profiles", ""};
+        break;
+    case SettingsID::Input_UseProfile:
+        setting = {"", "UseProfile"};
+        break;
+    case SettingsID::Input_UseGameProfile:
+        setting = {"", "UseGameProfile"};
+        break;
     case SettingsID::Input_PluggedIn:
         setting = {"", "PluggedIn"};
         break;
@@ -543,6 +640,9 @@ static l_Setting get_setting(SettingsID settingId)
     case SettingsID::Input_Deadzone:
         setting = {"", "Deadzone"};
         break;
+    case SettingsID::Input_Sensitivity:
+        setting = {"", "Sensitivity"};
+        break;
     case SettingsID::Input_Pak:
         setting = {"", "Pak"};
         break;
@@ -555,8 +655,11 @@ static l_Setting get_setting(SettingsID settingId)
     case SettingsID::Input_RemoveDuplicateMappings:
         setting = {"", "RemoveDuplicateMappings"};
         break;
-    case SettingsID::Input_InvertAxis:
-        setting = {"", "InvertAxis"};
+    case SettingsID::Input_FilterEventsForButtons:
+        setting = {"", "FilterEventsForButtons"};
+        break;
+    case SettingsID::Input_FilterEventsForAxis:
+        setting = {"", "FilterEventsForAxis"};
         break;
     case SettingsID::Input_A_InputType:
         setting = {"", "A_InputType"};
@@ -980,6 +1083,94 @@ static bool config_option_default_set(std::string section, std::string key, m64p
     return ret == M64ERR_SUCCESS;
 }
 
+static bool int_list_to_string(std::vector<int> intList, std::string& string)
+{
+    for (int i = 0; i < intList.size(); i++)
+    {
+        int num = intList.at(i);
+        string += std::to_string(num);
+
+        // don't add seperator at end
+        // of the list
+        if (i < (intList.size() - 1))
+        {
+            string += ";";
+        }
+    }
+    return true;
+}
+
+static bool string_to_int_list(std::string string, std::vector<int>& intList)
+{
+    std::string error;
+
+    // split string by ';'
+    // and append list with each item
+    std::stringstream value_str_stream(string);
+    std::string tmp_str;
+    while (std::getline(value_str_stream, tmp_str, ';'))
+    {
+        try
+        {
+            intList.emplace_back(std::stoi(tmp_str));
+        }
+        catch (...)
+        {
+            error = "string_to_int_list: std::stroi threw an exception!";
+            CoreSetError(error);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool string_list_to_string(std::vector<std::string> stringList, std::string& string)
+{
+    std::string error;
+
+    for (int i = 0; i < stringList.size(); i++)
+    {
+        std::string str = stringList.at(i);
+
+        // ensure the string doesn't contain
+        // the separator character
+        if (str.find(";") != std::string::npos)
+        {
+            error = "string_list_to_string: string cannot contain ';'!";
+            CoreSetError(error);
+            return false;
+        }
+
+        string += str;
+
+        // don't add separator at end
+        // of the list
+        if (i < (stringList.size() - 1))
+        {
+            string += ";";
+        }
+    }
+
+    return true;
+}
+
+static bool string_to_string_list(std::string string, std::vector<std::string>& stringList)
+{
+    std::string error;
+
+    // split string by ';'
+    // and append list with each item
+    std::stringstream value_str_stream(string);
+    std::string tmp_str;
+    while (std::getline(value_str_stream, tmp_str, ';'))
+    {
+        stringList.emplace_back(tmp_str);
+    }
+
+    return true;
+}
+
 //
 // Exported Functions
 //
@@ -1094,7 +1285,7 @@ bool CoreSettingsSetupDefaults(void)
             ret = config_option_default_set(setting.Section, setting.Key, M64TYPE_BOOL, &setting.DefaultValue.boolValue, setting.Description.c_str());
             break;
         case M64TYPE_FLOAT:
-            ret = config_option_default_set(setting.Section, setting.Key, M64TYPE_FLOAT, &setting.DefaultValue.intValue, setting.Description.c_str());
+            ret = config_option_default_set(setting.Section, setting.Key, M64TYPE_FLOAT, &setting.DefaultValue.floatValue, setting.Description.c_str());
             break;
         }
 
@@ -1115,6 +1306,27 @@ bool CoreSettingsSetupDefaults(void)
 bool CoreSettingsSectionExists(std::string section)
 {
     return config_section_exists(section);
+}
+
+bool CoreSettingsRevertSection(std::string section)
+{
+    std::string error;
+    m64p_error ret;
+
+    if (!m64p::Config.IsHooked())
+    {
+        return false;
+    }
+
+    ret = m64p::Config.RevertChanges(section.c_str());
+    if (ret != M64ERR_SUCCESS)
+    {
+        error = "CoreSettingsRevertSection m64p::Config.RevertChanges() Failed: ";
+        error = m64p::Core.ErrorMessage(ret);
+        CoreSetError(error);
+    }
+
+    return ret == M64ERR_SUCCESS;
 }
 
 bool CoreSettingsDeleteSection(std::string section)
@@ -1178,10 +1390,19 @@ bool CoreSettingsSetValue(SettingsID settingId, std::string value)
 bool CoreSettingsSetValue(SettingsID settingId, std::vector<int> value)
 {
     std::string value_str;
-    for (const int& num : value)
+    if (!int_list_to_string(value, value_str))
     {
-        value_str += std::to_string(num);
-        value_str += ";";
+        return false;
+    }
+    return CoreSettingsSetValue(settingId, value_str);
+}
+
+bool CoreSettingsSetValue(SettingsID settingId, std::vector<std::string> value)
+{
+    std::string value_str;
+    if (!string_list_to_string(value, value_str))
+    {
+        return false;
     }
     return CoreSettingsSetValue(settingId, value_str);
 }
@@ -1214,10 +1435,19 @@ bool CoreSettingsSetValue(SettingsID settingId, std::string section, std::string
 bool CoreSettingsSetValue(SettingsID settingId, std::string section, std::vector<int> value)
 {
     std::string value_str;
-    for (const int& num : value)
+    if (!int_list_to_string(value, value_str))
     {
-        value_str += std::to_string(num);
-        value_str += ";";
+        return false;
+    }
+    return CoreSettingsSetValue(settingId, section, value_str);
+}
+
+bool CoreSettingsSetValue(SettingsID settingId, std::string section, std::vector<std::string> value)
+{
+    std::string value_str;
+    if (!string_list_to_string(value, value_str))
+    {
+        return false;
     }
     return CoreSettingsSetValue(settingId, section, value_str);
 }
@@ -1246,10 +1476,19 @@ bool CoreSettingsSetValue(std::string section, std::string key, std::string valu
 bool CoreSettingsSetValue(std::string section, std::string key, std::vector<int> value)
 {
     std::string value_str;
-    for (const int& num : value)
+    if (!int_list_to_string(value, value_str))
     {
-        value_str += std::to_string(num);
-        value_str += ";";
+        return false;
+    }
+    return CoreSettingsSetValue(section, key, value_str);
+}
+
+bool CoreSettingsSetValue(std::string section, std::string key, std::vector<std::string> value)
+{
+    std::string value_str;
+    if (!string_list_to_string(value, value_str))
+    {
+        return false;
     }
     return CoreSettingsSetValue(section, key, value_str);
 }
@@ -1322,6 +1561,12 @@ std::vector<int> CoreSettingsGetIntListValue(SettingsID settingId)
     return CoreSettingsGetIntListValue(settingId, setting.Section);
 }
 
+std::vector<std::string> CoreSettingsGetStringListValue(SettingsID settingId)
+{
+    l_Setting setting = get_setting(settingId);
+    return CoreSettingsGetStringListValue(settingId, setting.Section);
+}
+
 int CoreSettingsGetIntValue(SettingsID settingId, std::string section)
 {
     l_Setting setting = get_setting(settingId);
@@ -1362,24 +1607,30 @@ std::vector<int> CoreSettingsGetIntListValue(SettingsID settingId, std::string s
     std::string value_str;
     value_str = CoreSettingsGetStringValue(settingId, section);
 
-    // split string by ';'
-    // and append list with each item
-    std::stringstream value_str_stream(value_str);
-    std::string tmp_str;
-    while (std::getline(value_str_stream, tmp_str, ';'))
+    if (!string_to_int_list(value_str, value))
     {
-        try
-        {
-            value.emplace_back(std::stoi(tmp_str));
-        }
-        catch (...)
-        { // ignore exception
-            continue;
-        }
+        return std::vector<int>();
     }
 
     return value;
 }
+
+std::vector<std::string> CoreSettingsGetStringListValue(SettingsID settingId, std::string section)
+{
+    l_Setting setting = get_setting(settingId);
+    std::vector<std::string> value;
+
+    std::string value_str;
+    value_str = CoreSettingsGetStringValue(settingId, section);
+
+    if (!string_to_string_list(value_str, value))
+    {
+        return std::vector<std::string>();
+    }
+
+    return value;
+}
+
 
 int CoreSettingsGetIntValue(std::string section, std::string key, int defaultValue)
 {
@@ -1409,27 +1660,31 @@ std::string CoreSettingsGetStringValue(std::string section, std::string key)
     return std::string(value);
 }
 
-std::vector<int> CoreSettingsGetIntListValue(std::string section, std::string key, std::vector<int> defaultValue)
+std::vector<int> CoreSettingsGetIntListValue(std::string section, std::string key)
 {
     std::vector<int> value;
 
     std::string value_str;
     value_str = CoreSettingsGetStringValue(section, key);
 
-    // split string by ';'
-    // and append list with each item
-    std::stringstream value_str_stream(value_str);
-    std::string tmp_str;
-    while (std::getline(value_str_stream, tmp_str, ';'))
+    if (!string_to_int_list(value_str, value))
     {
-        try
-        {
-            value.emplace_back(std::stoi(tmp_str));
-        }
-        catch (...)
-        { // ignore exception
-            continue;
-        }
+        return std::vector<int>();
+    }
+
+    return value;
+}
+
+std::vector<std::string> CoreSettingsGetStringListValue(std::string section, std::string key)
+{
+    std::vector<std::string> value;
+
+    std::string value_str;
+    value_str = CoreSettingsGetStringValue(section, key);
+
+    if (!string_to_string_list(value_str, value))
+    {
+        return std::vector<std::string>();
     }
 
     return value;

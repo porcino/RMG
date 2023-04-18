@@ -1,6 +1,3 @@
-#ifndef ROMSEARCHERTHREAD_HPP
-#define ROMSEARCHERTHREAD_HPP
-
 /*
  * Rosalie's Mupen GUI - https://github.com/Rosalie241/RMG
  *  Copyright (C) 2020 Rosalie Wanders <rosalie@mailbox.org>
@@ -10,6 +7,8 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+#ifndef ROMSEARCHERTHREAD_HPP
+#define ROMSEARCHERTHREAD_HPP
 
 #include <QString>
 #include <QThread>
@@ -41,7 +40,7 @@ class RomSearcherThread : public QThread
     void searchDirectory(QString);
 
   signals:
-    void RomFound(QString file, CoreRomType type, CoreRomHeader header, CoreRomSettings settings);
+    void RomFound(QString file, CoreRomType type, CoreRomHeader header, CoreRomSettings settings, int index, int count);
     void Finished(bool canceled);
 };
 } // namespace Thread

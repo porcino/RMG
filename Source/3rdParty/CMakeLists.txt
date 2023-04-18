@@ -6,7 +6,9 @@ include(ExternalProject)
 set(THIRDPARTY_DIR ${CMAKE_BINARY_DIR}/Source/3rdParty)
 
 find_program(RUST_CARGO cargo)
-if(${RUST_CARGO} STREQUAL "RUST_CARGO-NOTFOUND")
+if(NO_RUST)
+    set(BUILD_INPUT_GCA OFF)
+elseif(${RUST_CARGO} STREQUAL "RUST_CARGO-NOTFOUND")
     message(WARNING "mupen64plus-input-gca will not be built due to not having cargo installed")
     set(BUILD_INPUT_GCA OFF)
 else()
@@ -36,21 +38,21 @@ else(USE_CCACHE)
 endif(USE_CCACHE)
 
 if(NOT NO_GIT_CLONE)
-    set(MUPEN64PLUSCORE_URL           "https://github.com/Rosalie241/mupen64plus-core")
-    set(MUPEN64PLUSCORE_TAG           "0b482bcc400b5d51d051db9450b5984646afc1f5")
-    
+    set(MUPEN64PLUSCORE_URL           "https://github.com/mupen64plus/mupen64plus-core")
+    set(MUPEN64PLUSCORE_TAG           "d4f3e12db0609158c7b4e0beef2bb950aad0ccb9")
+
     set(MUPEN64PLUS_RSP_CXD4_URL      "https://github.com/mupen64plus/mupen64plus-rsp-cxd4")
     set(MUPEN64PLUS_RSP_CXD4_TAG      "39f79201baa15890c4cbae92f2215a634cc3ee6d")
-    
+
     set(MUPEN64PLUS_RSP_HLE_URL       "https://github.com/mupen64plus/mupen64plus-rsp-hle")
     set(MUPEN64PLUS_RSP_HLE_TAG       "88093cb43499eff53d343653cddcae2132af17ef")
-    
+
     set(MUPEN64PLUS_RSP_PARALLEL_URL  "https://github.com/Rosalie241/parallel-rsp")
-    set(MUPEN64PLUS_RSP_PARALLEL_TAG  "e67cee3131651c3e48343294d94fa68a6f8ec14c")
-    
+    set(MUPEN64PLUS_RSP_PARALLEL_TAG  "cfeea3a0f89ba5bc4265acb75778e1267ed1e424")
+
     set(MUPEN64PLUS_INPUT_RAPHNET_URL "https://github.com/raphnet/mupen64plus-input-raphnetraw")
     set(MUPEN64PLUS_INPUT_RAPHNET_TAG "86112413e98a8648edb11d199673cc24d5799af8")
-	
+
     set(MUPEN64PLUS_INPUT_GCA_URL     "https://github.com/amatho/mupen64plus-input-gca")
     set(MUPEN64PLUS_INPUT_GCA_TAG     "21639fb13dfa797a7c0949ffd9bbda9a3456fc69")
 
@@ -58,13 +60,19 @@ if(NOT NO_GIT_CLONE)
     set(MUPEN64PLUS_GFX_ANGRYLION_TAG "158e74d4ec1c818289cd19c3a05e498c3ceff758")
 
     set(MUPEN64PLUS_GFX_GLIDEN64_URL  "https://github.com/gonetz/GLideN64")
-    set(MUPEN64PLUS_GFX_GLIDEN64_TAG  "0ecafa74cb2cc3a2d3ea7d3d90638c1378cdf9d5")
+    set(MUPEN64PLUS_GFX_GLIDEN64_TAG  "0fee30d010d1feda7d343654871b3dfd05ccab70")
 
     set(MUPEN64PLUS_GFX_PARALLEL_URL  "https://github.com/Rosalie241/parallel-rdp-standalone")
-    set(MUPEN64PLUS_GFX_PARALLEL_TAG  "48abaa5e082add7848e6f98648111c69c4a71632")
+    set(MUPEN64PLUS_GFX_PARALLEL_TAG  "2c2226517c4c8929e08ec944654867e26efe0cf5")
 
     set(DISCORD_RPC_URL               "https://github.com/discord/discord-rpc")
     set(DISCORD_RPC_TAG               "963aa9f3e5ce81a4682c6ca3d136cddda614db33")
+
+    set(IMGUI_URL                     "https://github.com/ocornut/imgui")
+    set(IMGUI_TAG                     "d7c8516a4b848c0291e3d75b627c0843f515f591")
+
+    set(SDL_GAMECONTROLLERDB_URL      "https://github.com/gabomdq/SDL_GameControllerDB")
+    set(SDL_GAMECONTROLLERDB_TAG      "b7e5701da82fc97beeede64d3818ef0f4d015aba")
 endif(NOT NO_GIT_CLONE)
 
 ExternalProject_Add(mupen64plus-core
@@ -196,7 +204,7 @@ ExternalProject_Add(mupen64plus-video-angrylion-plus
     INSTALL_COMMAND ""
 
     BUILD_IN_SOURCE True
-    CMAKE_ARGS -DBUILD_MUPEN64PLUS=ON -DBUILD_PROJECT64=OFF -DUSE_QT5=${USE_QT5} ${CMAKE_CONFIGURE_ARGS}
+    CMAKE_ARGS -DBUILD_MUPEN64PLUS=ON -DBUILD_PROJECT64=OFF -DUSE_QT5=OFF ${CMAKE_CONFIGURE_ARGS}
 
     BUILD_BYPRODUCTS ${THIRDPARTY_DIR}/mupen64plus-video-angrylion-plus/mupen64plus-video-angrylion-plus.${SO_EXT}
     DEPENDS mupen64plus-core
@@ -211,7 +219,7 @@ ExternalProject_Add(mupen64plus-video-GLideN64
     INSTALL_COMMAND ""
 
     BUILD_IN_SOURCE False
-    CMAKE_ARGS -DMUPENPLUSAPI=ON -DMUPENPLUSAPI_GLIDENUI=ON -DGLIDENUI_QT6=${USE_QT6} -DUSE_SYSTEM_LIBS=ON ${CMAKE_CONFIGURE_ARGS}
+    CMAKE_ARGS -DMUPENPLUSAPI=ON -DMUPENPLUSAPI_GLIDENUI=ON -DGLIDENUI_QT6=ON -DUSE_SYSTEM_LIBS=ON ${CMAKE_CONFIGURE_ARGS}
 
     SOURCE_SUBDIR ./src/
     BINARY_DIR ${GLIDEN64_BUILD_DIR}
@@ -228,7 +236,7 @@ ExternalProject_Add(mupen64plus-video-parallel
     INSTALL_COMMAND ""
 
     BUILD_IN_SOURCE True
-    CMAKE_ARGS -DUSE_QT5=${USE_QT5} ${CMAKE_CONFIGURE_ARGS}
+    CMAKE_ARGS -DUSE_QT5=OFF ${CMAKE_CONFIGURE_ARGS}
 
     BUILD_BYPRODUCTS ${THIRDPARTY_DIR}/mupen64plus-video-parallel/mupen64plus-video-parallel.${SO_EXT}
     DEPENDS mupen64plus-core
@@ -249,6 +257,60 @@ if (DISCORD_RPC)
         BUILD_BYPRODUCTS ${THIRDPARTY_DIR}/discord-rpc/src/libdiscord-rpc.a
     )
 endif(DISCORD_RPC)
+
+set(IMGUI_DIR ${THIRDPARTY_DIR}/imgui)
+set(IMGUI_BUILD_DIR ${IMGUI_DIR}/build)
+set(IMGUI_SOURCES_IN
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp 
+    ${IMGUI_DIR}/imgui_widgets.cpp 
+    ${IMGUI_DIR}/imgui.cpp 
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.h 
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3_loader.h 
+)
+set(IMGUI_SOURCES_OUT
+    ${IMGUI_BUILD_DIR}/imgui_draw.cpp
+    ${IMGUI_BUILD_DIR}/imgui_tables.cpp
+    ${IMGUI_BUILD_DIR}/imgui_widgets.cpp
+    ${IMGUI_BUILD_DIR}/imgui.cpp
+    ${IMGUI_BUILD_DIR}/imgui_impl_opengl3.cpp
+    ${IMGUI_BUILD_DIR}/imgui_impl_opengl3.h 
+    ${IMGUI_BUILD_DIR}/imgui_impl_opengl3_loader.h 
+)
+ExternalProject_Add(imgui
+    SOURCE_DIR imgui
+
+    GIT_REPOSITORY ${IMGUI_URL}
+    GIT_TAG ${IMGUI_TAG}
+
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E make_directory ${IMGUI_BUILD_DIR}
+    BUILD_COMMAND ${CMAKE_COMMAND} -E copy ${IMGUI_SOURCES_IN} ${IMGUI_BUILD_DIR}
+    INSTALL_COMMAND ""
+
+    BUILD_BYPRODUCTS ${IMGUI_SOURCES_OUT}
+)
+
+set(SDL_GAMECONTROLLERDB_DIR ${THIRDPARTY_DIR}/SDL_GameControllerDB)
+set(SDL_GAMECONTROLLERDB_BUILD_DIR ${SDL_GAMECONTROLLERDB_DIR}/build)
+set(SDL_GAMECONTROLLERDB_SOURCES_IN
+    ${SDL_GAMECONTROLLERDB_DIR}/gamecontrollerdb.txt
+)
+set(SDL_GAMECONTROLLERDB_SOURCES_OUT
+    ${SDL_GAMECONTROLLERDB_BUILD_DIR}/gamecontrollerdb.txt
+)
+ExternalProject_Add(SDL_GameControllerDB
+    SOURCE_DIR SDL_GameControllerDB
+
+    GIT_REPOSITORY ${SDL_GAMECONTROLLERDB_URL}
+    GIT_TAG ${SDL_GAMECONTROLLERDB_TAG}
+
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E make_directory ${SDL_GAMECONTROLLERDB_BUILD_DIR}
+    BUILD_COMMAND ${CMAKE_COMMAND} -E copy ${SDL_GAMECONTROLLERDB_SOURCES_IN} ${SDL_GAMECONTROLLERDB_SOURCES_OUT}
+    INSTALL_COMMAND ""
+
+    BUILD_BYPRODUCTS ${SDL_GAMECONTROLLERDB_SOURCES_OUT}
+)
 
 ExternalProject_Get_property(mupen64plus-core BUILD_BYPRODUCTS)
 set(MUPEN64PLUSCORE_LIB ${BUILD_BYPRODUCTS} PARENT_SCOPE)
@@ -284,3 +346,10 @@ if (DISCORD_RPC)
     ExternalProject_Get_property(discord-rpc BUILD_BYPRODUCTS)
     set(DISCORD_RPC_LIB ${BUILD_BYPRODUCTS} PARENT_SCOPE)
 endif(DISCORD_RPC)
+
+ExternalProject_Get_property(imgui BUILD_BYPRODUCTS)
+set(IMGUI_SOURCES ${BUILD_BYPRODUCTS} PARENT_SCOPE)
+set(IMGUI_DIR ${THIRDPARTY_DIR}/imgui PARENT_SCOPE)
+
+ExternalProject_Get_property(SDL_GameControllerDB BUILD_BYPRODUCTS)
+set(SDL_GAMECONTROLLERDB ${BUILD_BYPRODUCTS} PARENT_SCOPE)

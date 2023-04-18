@@ -8,6 +8,7 @@
  *  along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 #include "SettingsDialog.hpp"
+#include "OnScreenDisplay.hpp"
 #include "RMG-Core/DiscordRpc.hpp"
 #include "RMG-Core/Settings/Settings.hpp"
 #include "UserInterface/Widget/KeybindButton.hpp"
@@ -42,14 +43,14 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent)
     else
     {
         this->hideEmulationInfoText();
-        this->tabWidget->setTabEnabled(1, false);
+        this->tabWidget->setTabEnabled(3, false);
     }
 
     pluginList = CoreGetAllPlugins();
 
-    for (int i = 0; i < 13; i++)
+    for (int i = 0; i < 14; i++)
     {
-        this->reloadSettings(i);
+        this->loadSettings(i);
     }
 
     // connect hotkey settings to slot
@@ -61,18 +62,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent)
 
 #ifndef DISCORD_RPC
     this->discordRpcCheckBox->setHidden(true);
-
-    // if both DISCORD_RPC & UPDATER
-    // aren't defined, hide the tab
-    // with the settings for those
-#ifndef UPDATER
-    this->innerInterfaceTabWidget->removeTab(4);
-#endif // !UPDATER
 #endif // !DISCORD_RPC
-
-#ifndef _WIN32
-    this->innerInterfaceTabWidget->removeTab(3);
-#endif
 
     int width = CoreSettingsGetIntValue(SettingsID::GUI_SettingsDialogWidth);
     int height = CoreSettingsGetIntValue(SettingsID::GUI_SettingsDialogHeight);
@@ -94,29 +84,33 @@ SettingsDialog::~SettingsDialog(void)
 
 void SettingsDialog::ShowGameTab(void)
 {
-    this->tabWidget->setCurrentIndex(1);
+    this->tabWidget->setCurrentIndex(3);
 }
 
 int SettingsDialog::currentIndex(void)
 {
     int currentIndex = this->tabWidget->currentIndex();
+    int index = currentIndex;
 
-    if (currentIndex == 1)
-    { // game tab
-        currentIndex += this->innerGameTabWidget->currentIndex();
-    }
-
-    if (currentIndex > 1)
-    { // above game tab
-        currentIndex += this->innerGameTabWidget->count() - 1;
-    }
-
-    if (currentIndex == 8)
+    if (currentIndex == 0)
     { // interface tab
-        currentIndex += this->innerInterfaceTabWidget->currentIndex();
+        index += this->innerInterfaceTabWidget->currentIndex();
+    }
+    else if (currentIndex > 0)
+    { // above interface tab
+        index += this->innerInterfaceTabWidget->count() - 1;
     }
 
-    return currentIndex;
+    if (currentIndex == 3)
+    { // game tab
+        index += this->innerGameTabWidget->currentIndex();
+    }
+    else if (currentIndex > 3)
+    { // above game tab
+        index += this->innerGameTabWidget->count() - 1;
+    }
+
+    return index;
 }
 
 void SettingsDialog::restoreDefaults(int stackedWidgetIndex)
@@ -124,91 +118,93 @@ void SettingsDialog::restoreDefaults(int stackedWidgetIndex)
     switch (stackedWidgetIndex)
     {
     default:
+        break;
     case 0:
-        this->loadDefaultCoreSettings();
-        break;
-    case 1:
-        this->loadDefaultGameSettings();
-        break;
-    case 2:
-        this->loadDefaultGameCoreSettings();
-        break;
-    case 3:
-        this->loadDefaultGamePluginSettings();
-        break;
-    case 4:
-        this->loadDefaultPluginSettings();
-        break;
-    case 5:
-        this->loadDefaultDirectorySettings();
-        break;
-    case 6:
-        this->loadDefault64DDSettings();
-        break;
-    case 7:
-        this->loadDefaultHotkeySettings();
-        break;
-    case 8:
         this->loadDefaultInterfaceEmulationSettings();
         break;
-    case 9:
+    case 1:
         this->loadDefaultInterfaceRomBrowserSettings();
         break;
+    case 2:
+        this->loadDefaultInterfaceLogSettings();
+        break;
+    case 3:
+        this->loadDefaultInterfaceOSDSettings();
+        break;
+    case 4:
+        this->loadDefaultInterfaceMiscSettings();
+        break;
+    case 5:
+        this->loadDefaultHotkeySettings();
+        break;
+    case 6:
+        this->loadDefaultCoreSettings();
+        break;
+    case 7:
+        this->loadDefaultGameSettings();
+        break;
+    case 8:
+        this->loadDefaultGameCoreSettings();
+        break;
+    case 9:
+        this->loadDefaultGamePluginSettings();
+        break;
     case 10:
-        this->loadDefaultInterfaceLogWindowSettings();
+        this->loadDefaultPluginSettings();
         break;
     case 11:
-        this->loadDefaultInterfaceStyleSettings();
+        this->loadDefaultDirectorySettings();
         break;
     case 12:
-        this->loadDefaultInterfaceMiscSettings();
+        this->loadDefault64DDSettings();
         break;
     }
 }
 
-void SettingsDialog::reloadSettings(int stackedWidgetIndex)
+void SettingsDialog::loadSettings(int stackedWidgetIndex)
 {
     switch (stackedWidgetIndex)
     {
     default:
+        break;
     case 0:
-        this->loadCoreSettings();
-        break;
-    case 1:
-        this->loadGameSettings();
-        break;
-    case 2:
-        this->loadGameCoreSettings();
-        break;
-    case 3:
-        this->loadGamePluginSettings();
-        break;
-    case 4:
-        this->loadPluginSettings();
-        break;
-    case 5:
-        this->loadDirectorySettings();
-        break;
-    case 6:
-        this->load64DDSettings();
-        break;
-    case 7:
-        this->loadHotkeySettings();
-        break;
-    case 8:
         this->loadInterfaceEmulationSettings();
         break;
-    case 9:
+    case 1:
         this->loadInterfaceRomBrowserSettings();
         break;
+    case 2:
+        this->loadInterfaceLogSettings();
+        break;
+    case 3:
+        this->loadInterfaceOSDSettings();
+        break;
+    case 4:
+        this->loadInterfaceMiscSettings();
+        break;
+    case 5:
+        this->loadHotkeySettings();
+        break;
+    case 6:
+        this->loadCoreSettings();
+        break;
+    case 7:
+        this->loadGameSettings();
+        break;
+    case 8:
+        this->loadGameCoreSettings();
+        break;
+    case 9:
+        this->loadGamePluginSettings();
+        break;
     case 10:
-        this->loadInterfaceLogWindowSettings();
+        this->loadPluginSettings();
         break;
     case 11:
-        this->loadInterfaceStyleSettings();
+        this->loadDirectorySettings();
         break;
     case 12:
-        this->loadInterfaceMiscSettings();
+        this->load64DDSettings();
         break;
     }
 }
@@ -218,6 +214,7 @@ void SettingsDialog::loadCoreSettings(void)
     bool disableExtraMem = false;
     int counterFactor = 0;
     int cpuEmulator = 0;
+    int saveFilenameFormat = 0;
     int siDmaDuration = -1;
     bool randomizeInterrupt = true;
     bool debugger = false;
@@ -226,12 +223,14 @@ void SettingsDialog::loadCoreSettings(void)
     disableExtraMem = CoreSettingsGetBoolValue(SettingsID::CoreOverlay_DisableExtraMem);
     counterFactor = CoreSettingsGetIntValue(SettingsID::CoreOverlay_CountPerOp);
     cpuEmulator = CoreSettingsGetIntValue(SettingsID::CoreOverlay_CPU_Emulator);
+    saveFilenameFormat = CoreSettingsGetIntValue(SettingsID::CoreOverLay_SaveFileNameFormat);
     siDmaDuration = CoreSettingsGetIntValue(SettingsID::CoreOverlay_SiDmaDuration);
     randomizeInterrupt = CoreSettingsGetBoolValue(SettingsID::CoreOverlay_RandomizeInterrupt);
     debugger = CoreSettingsGetBoolValue(SettingsID::CoreOverlay_EnableDebugger);
     overrideGameSettings = CoreSettingsGetBoolValue(SettingsID::Core_OverrideGameSpecificSettings);
 
     this->coreCpuEmulatorComboBox->setCurrentIndex(cpuEmulator);
+    this->coreSaveFilenameFormatComboBox->setCurrentIndex(saveFilenameFormat);
     this->coreRandomizeTimingCheckBox->setChecked(randomizeInterrupt);
     //this->coreDebuggerCheckBox->setChecked(debugger);
 
@@ -378,7 +377,6 @@ void SettingsDialog::loadHotkeySettings(void)
 
 void SettingsDialog::loadInterfaceEmulationSettings(void)
 {
-    this->manualResizingCheckBox->setChecked(CoreSettingsGetBoolValue(SettingsID::GUI_AllowManualResizing));
     this->pauseEmulationOnFocusCheckbox->setChecked(CoreSettingsGetBoolValue(SettingsID::GUI_PauseEmulationOnFocusLoss));
     this->resumeEmulationOnFocusCheckBox->setChecked(CoreSettingsGetBoolValue(SettingsID::GUI_ResumeEmulationOnFocus));
     this->hideCursorCheckBox->setChecked(CoreSettingsGetBoolValue(SettingsID::GUI_HideCursorInEmulation));
@@ -390,21 +388,45 @@ void SettingsDialog::loadInterfaceEmulationSettings(void)
 void SettingsDialog::loadInterfaceRomBrowserSettings(void)
 {
     this->searchSubDirectoriesCheckbox->setChecked(CoreSettingsGetBoolValue(SettingsID::RomBrowser_Recursive));
+    this->sortRomBrowserResultsCheckBox->setChecked(CoreSettingsGetBoolValue(SettingsID::RomBrowser_SortAfterSearch));
     this->romSearchLimitSpinBox->setValue(CoreSettingsGetIntValue(SettingsID::RomBrowser_MaxItems));
 }
 
-void SettingsDialog::loadInterfaceLogWindowSettings(void)
+void SettingsDialog::loadInterfaceLogSettings(void)
 {
     this->showVerboseLogMessagesCheckBox->setChecked(CoreSettingsGetBoolValue(SettingsID::GUI_ShowVerboseLogMessages));
 }
 
-void SettingsDialog::loadInterfaceStyleSettings(void)
+void SettingsDialog::loadInterfaceOSDSettings(void)
 {
-    this->commonInterfaceStyleSettings(SettingsDialogAction::LoadSettings);
+    this->osdEnabledCheckBox->setChecked(CoreSettingsGetBoolValue(SettingsID::GUI_OnScreenDisplayEnabled));
+    this->osdLocationComboBox->setCurrentIndex(CoreSettingsGetIntValue(SettingsID::GUI_OnScreenDisplayLocation));
+    this->osdVerticalPaddingSpinBox->setValue(CoreSettingsGetIntValue(SettingsID::GUI_OnScreenDisplayPaddingY));
+    this->osdHorizontalPaddingSpinBox->setValue(CoreSettingsGetIntValue(SettingsID::GUI_OnScreenDisplayPaddingX));
+    this->osdOpacitySpinBox->setValue(CoreSettingsGetFloatValue(SettingsID::GUI_OnScreenDisplayOpacity));
+    this->osdDurationSpinBox->setValue(CoreSettingsGetIntValue(SettingsID::GUI_OnScreenDisplayDuration));
 }
 
 void SettingsDialog::loadInterfaceMiscSettings(void)
 {
+    // find stylesheets and add them to the UI
+    QString directory;
+    directory = QString::fromStdString(CoreGetSharedDataDirectory().string());
+    directory += "/Styles/";
+
+    QStringList filter;
+    filter << "*.qss";
+
+    QDirIterator stylesDirectoryIter(directory, filter, QDir::Files, QDirIterator::NoIteratorFlags);
+    while (stylesDirectoryIter.hasNext())
+    {
+        QFileInfo fileInfo(stylesDirectoryIter.next());
+        this->themeComboBox->addItem(fileInfo.fileName());
+    }
+
+    // select currently chosen theme in UI
+    this->themeComboBox->setCurrentText(QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_Theme)));
+    this->iconThemeComboBox->setCurrentText(QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_IconTheme)));
 #ifdef UPDATER
     this->checkForUpdatesCheckBox->setChecked(CoreSettingsGetBoolValue(SettingsID::GUI_CheckForUpdates));
 #endif // UPDATER
@@ -418,6 +440,7 @@ void SettingsDialog::loadDefaultCoreSettings(void)
     bool disableExtraMem = false;
     int counterFactor = 0;
     int cpuEmulator = 0;
+    int saveFilenameFormat = 0;
     int siDmaDuration = -1;
     bool randomizeInterrupt = true;
     bool debugger = false;
@@ -427,11 +450,13 @@ void SettingsDialog::loadDefaultCoreSettings(void)
     counterFactor = CoreSettingsGetDefaultIntValue(SettingsID::CoreOverlay_CountPerOp);
     cpuEmulator = CoreSettingsGetDefaultIntValue(SettingsID::CoreOverlay_CPU_Emulator);
     siDmaDuration = CoreSettingsGetDefaultIntValue(SettingsID::CoreOverlay_SiDmaDuration);
+    saveFilenameFormat = CoreSettingsGetDefaultIntValue(SettingsID::CoreOverLay_SaveFileNameFormat);
     randomizeInterrupt = CoreSettingsGetDefaultBoolValue(SettingsID::CoreOverlay_RandomizeInterrupt);
     debugger = CoreSettingsGetDefaultBoolValue(SettingsID::CoreOverlay_EnableDebugger);
     overrideGameSettings = CoreSettingsGetDefaultBoolValue(SettingsID::Core_OverrideGameSpecificSettings);
 
     this->coreCpuEmulatorComboBox->setCurrentIndex(cpuEmulator);
+    this->coreSaveFilenameFormatComboBox->setCurrentIndex(saveFilenameFormat);
     this->coreRandomizeTimingCheckBox->setChecked(randomizeInterrupt);
     //this->coreDebuggerCheckBox->setChecked(debugger);
 
@@ -515,7 +540,6 @@ void SettingsDialog::loadDefaultHotkeySettings(void)
 
 void SettingsDialog::loadDefaultInterfaceEmulationSettings(void)
 {
-    this->manualResizingCheckBox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::GUI_AllowManualResizing));
     this->pauseEmulationOnFocusCheckbox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::GUI_PauseEmulationOnFocusLoss));
     this->resumeEmulationOnFocusCheckBox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::GUI_ResumeEmulationOnFocus));
     this->hideCursorCheckBox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::GUI_HideCursorInEmulation));
@@ -527,21 +551,29 @@ void SettingsDialog::loadDefaultInterfaceEmulationSettings(void)
 void SettingsDialog::loadDefaultInterfaceRomBrowserSettings(void)
 {
     this->searchSubDirectoriesCheckbox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::RomBrowser_Recursive));
+    this->sortRomBrowserResultsCheckBox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::RomBrowser_SortAfterSearch));
     this->romSearchLimitSpinBox->setValue(CoreSettingsGetDefaultIntValue(SettingsID::RomBrowser_MaxItems));
 }
 
-void SettingsDialog::loadDefaultInterfaceLogWindowSettings(void)
+void SettingsDialog::loadDefaultInterfaceLogSettings(void)
 {
     this->showVerboseLogMessagesCheckBox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::GUI_ShowVerboseLogMessages));
 }
 
-void SettingsDialog::loadDefaultInterfaceStyleSettings(void)
+void SettingsDialog::loadDefaultInterfaceOSDSettings(void)
 {
-    this->commonInterfaceStyleSettings(SettingsDialogAction::LoadDefaultSettings);
+    this->osdEnabledCheckBox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::GUI_OnScreenDisplayEnabled));
+    this->osdLocationComboBox->setCurrentIndex(CoreSettingsGetDefaultIntValue(SettingsID::GUI_OnScreenDisplayLocation));
+    this->osdVerticalPaddingSpinBox->setValue(CoreSettingsGetDefaultIntValue(SettingsID::GUI_OnScreenDisplayPaddingY));
+    this->osdHorizontalPaddingSpinBox->setValue(CoreSettingsGetDefaultIntValue(SettingsID::GUI_OnScreenDisplayPaddingX));
+    this->osdOpacitySpinBox->setValue(CoreSettingsGetDefaultFloatValue(SettingsID::GUI_OnScreenDisplayOpacity));
+    this->osdDurationSpinBox->setValue(CoreSettingsGetDefaultIntValue(SettingsID::GUI_OnScreenDisplayDuration));
 }
 
 void SettingsDialog::loadDefaultInterfaceMiscSettings(void)
 {
+    this->themeComboBox->setCurrentText(QString::fromStdString(CoreSettingsGetDefaultStringValue(SettingsID::GUI_Theme)));
+    this->iconThemeComboBox->setCurrentText(QString::fromStdString(CoreSettingsGetDefaultStringValue(SettingsID::GUI_IconTheme)));
 #ifdef UPDATER
     this->checkForUpdatesCheckBox->setChecked(CoreSettingsGetDefaultBoolValue(SettingsID::GUI_CheckForUpdates));
 #endif // UPDATER
@@ -567,8 +599,8 @@ void SettingsDialog::saveSettings(void)
     this->saveHotkeySettings();
     this->saveInterfaceEmulationSettings();
     this->saveInterfaceRomBrowserSettings();
-    this->saveInterfaceLogWindowSettings();
-    this->saveInterfaceStyleSettings();
+    this->saveInterfaceLogSettings();
+    this->saveInterfaceOSDSettings();
     this->saveInterfaceMiscSettings();
 }
 
@@ -577,12 +609,14 @@ void SettingsDialog::saveCoreSettings(void)
     bool disableExtraMem = (this->coreMemorySizeComboBox->currentIndex() == 0);
     int counterFactor = this->coreCounterFactorComboBox->currentIndex() + 1;
     int cpuEmulator = this->coreCpuEmulatorComboBox->currentIndex();
+    int saveFilenameFormat = this->coreSaveFilenameFormatComboBox->currentIndex();
     int siDmaDuration = this->coreSiDmaDurationSpinBox->value();
     bool randomizeInterrupt = this->coreRandomizeTimingCheckBox->isChecked();
     //bool debugger = this->coreDebuggerCheckBox->isChecked();
     bool overrideGameSettings = this->coreOverrideGameSettingsGroup->isChecked();
 
     CoreSettingsSetValue(SettingsID::CoreOverlay_CPU_Emulator, cpuEmulator);
+    CoreSettingsSetValue(SettingsID::CoreOverLay_SaveFileNameFormat, saveFilenameFormat);
     CoreSettingsSetValue(SettingsID::CoreOverlay_RandomizeInterrupt, randomizeInterrupt);
     //CoreSettingsSetValue(SettingsID::CoreOverlay_EnableDebugger, debugger);
     CoreSettingsSetValue(SettingsID::Core_OverrideGameSpecificSettings, overrideGameSettings);
@@ -713,7 +747,6 @@ void SettingsDialog::saveHotkeySettings(void)
 
 void SettingsDialog::saveInterfaceEmulationSettings(void)
 {
-    CoreSettingsSetValue(SettingsID::GUI_AllowManualResizing, this->manualResizingCheckBox->isChecked());
     CoreSettingsSetValue(SettingsID::GUI_HideCursorInEmulation, this->hideCursorCheckBox->isChecked());
     CoreSettingsSetValue(SettingsID::GUI_HideCursorInFullscreenEmulation, this->hideCursorFullscreenCheckBox->isChecked());
     CoreSettingsSetValue(SettingsID::GUI_PauseEmulationOnFocusLoss, this->pauseEmulationOnFocusCheckbox->isChecked());
@@ -725,24 +758,29 @@ void SettingsDialog::saveInterfaceEmulationSettings(void)
 void SettingsDialog::saveInterfaceRomBrowserSettings(void)
 {
     CoreSettingsSetValue(SettingsID::RomBrowser_Recursive, this->searchSubDirectoriesCheckbox->isChecked());
+    CoreSettingsSetValue(SettingsID::RomBrowser_SortAfterSearch, this->sortRomBrowserResultsCheckBox->isChecked());
     CoreSettingsSetValue(SettingsID::RomBrowser_MaxItems, this->romSearchLimitSpinBox->value());
 }
 
-void SettingsDialog::saveInterfaceLogWindowSettings(void)
+void SettingsDialog::saveInterfaceLogSettings(void)
 {
     CoreSettingsSetValue(SettingsID::GUI_ShowVerboseLogMessages, this->showVerboseLogMessagesCheckBox->isChecked());
 }
 
-void SettingsDialog::saveInterfaceStyleSettings(void)
+void SettingsDialog::saveInterfaceOSDSettings(void)
 {
-#ifdef _WIN32
-    CoreSettingsSetValue(SettingsID::GUI_Style, this->styleComboBox->currentData().toString().toStdString());
-    CoreSettingsSetValue(SettingsID::GUI_IconTheme, this->iconThemeComboBox->currentText().toStdString());
-#endif // _WIN32
+    CoreSettingsSetValue(SettingsID::GUI_OnScreenDisplayEnabled, this->osdEnabledCheckBox->isChecked());
+    CoreSettingsSetValue(SettingsID::GUI_OnScreenDisplayLocation, this->osdLocationComboBox->currentIndex());
+    CoreSettingsSetValue(SettingsID::GUI_OnScreenDisplayPaddingY, this->osdVerticalPaddingSpinBox->value());
+    CoreSettingsSetValue(SettingsID::GUI_OnScreenDisplayPaddingX, this->osdHorizontalPaddingSpinBox->value());
+    CoreSettingsSetValue(SettingsID::GUI_OnScreenDisplayOpacity, (float)this->osdOpacitySpinBox->value());
+    CoreSettingsSetValue(SettingsID::GUI_OnScreenDisplayDuration, this->osdDurationSpinBox->value());
 }
 
 void SettingsDialog::saveInterfaceMiscSettings(void)
 {
+    CoreSettingsSetValue(SettingsID::GUI_Theme, this->themeComboBox->currentText().toStdString());
+    CoreSettingsSetValue(SettingsID::GUI_IconTheme, this->iconThemeComboBox->currentText().toStdString());
 #ifdef UPDATER
     CoreSettingsSetValue(SettingsID::GUI_CheckForUpdates, this->checkForUpdatesCheckBox->isChecked());
 #endif // UPDATER
@@ -781,6 +819,22 @@ void SettingsDialog::commonHotkeySettings(SettingsDialogAction action)
         { this->gsButtonKeyButton, SettingsID::KeyBinding_GSButton },
     };
 
+    std::vector<keybinding> keybindings_SpeedFactor =
+    {
+        { this->speedFactor25KeyButton, SettingsID::KeyBinding_SpeedFactor25 },
+        { this->speedFactor50KeyButton, SettingsID::KeyBinding_SpeedFactor50 },
+        { this->speedFactor75KeyButton, SettingsID::KeyBinding_SpeedFactor75 },
+        { this->speedFactor100KeyButton, SettingsID::KeyBinding_SpeedFactor100 },
+        { this->speedFactor125KeyButton, SettingsID::KeyBinding_SpeedFactor125 },
+        { this->speedFactor150KeyButton, SettingsID::KeyBinding_SpeedFactor150 },
+        { this->speedFactor175KeyButton, SettingsID::KeyBinding_SpeedFactor175 },
+        { this->speedFactor200KeyButton, SettingsID::KeyBinding_SpeedFactor200 },
+        { this->speedFactor225KeyButton, SettingsID::KeyBinding_SpeedFactor225 },
+        { this->speedFactor250KeyButton, SettingsID::KeyBinding_SpeedFactor250 },
+        { this->speedFactor275KeyButton, SettingsID::KeyBinding_SpeedFactor275 },
+        { this->speedFactor300KeyButton, SettingsID::KeyBinding_SpeedFactor300 },
+    };
+
     std::vector<keybinding> keybindings_CurrentSaveState =
     {
         { this->saveState0KeyButton, SettingsID::KeyBinding_SaveStateSlot0 },
@@ -797,12 +851,18 @@ void SettingsDialog::commonHotkeySettings(SettingsDialogAction action)
 
     std::vector<keybinding> keybindings_Settings =
     {
+        { this->graphicsSettingsKeyButton, SettingsID::KeyBinding_GraphicsSettings },
+        { this->audioSettingsKeyButton, SettingsID::KeyBinding_AudioSettings },
+        { this->rspSettingsKeyButton, SettingsID::KeyBinding_RspSettings },
+        { this->inputSettingsKeyButton, SettingsID::KeyBinding_InputSettings },
         { this->settingsKeyButton, SettingsID::KeyBinding_Settings },
     };
 
     std::vector<keybinding> keybindings_View =
     {
         { this->fullscreenKeyButton, SettingsID::KeyBinding_Fullscreen },
+        { this->logKeyButton, SettingsID::Keybinding_ViewLog },
+        { this->refreshRomListKeyButton, SettingsID::KeyBinding_RefreshROMList }
     };
 
 
@@ -816,12 +876,15 @@ void SettingsDialog::commonHotkeySettings(SettingsDialogAction action)
             keybindings.insert(keybindings.end(), keybindings_System.begin(), keybindings_System.end());
             break;
         case 1:
-            keybindings.insert(keybindings.end(), keybindings_CurrentSaveState.begin(), keybindings_CurrentSaveState.end());
+            keybindings.insert(keybindings.end(), keybindings_SpeedFactor.begin(), keybindings_SpeedFactor.end());
             break;
         case 2:
-            keybindings.insert(keybindings.end(), keybindings_Settings.begin(), keybindings_Settings.end());
+            keybindings.insert(keybindings.end(), keybindings_CurrentSaveState.begin(), keybindings_CurrentSaveState.end());
             break;
         case 3:
+            keybindings.insert(keybindings.end(), keybindings_Settings.begin(), keybindings_Settings.end());
+            break;
+        case 4:
             keybindings.insert(keybindings.end(), keybindings_View.begin(), keybindings_View.end());
             break;
         }
@@ -829,6 +892,7 @@ void SettingsDialog::commonHotkeySettings(SettingsDialogAction action)
     else
     {
         keybindings.insert(keybindings.end(), keybindings_System.begin(), keybindings_System.end());
+        keybindings.insert(keybindings.end(), keybindings_SpeedFactor.begin(), keybindings_SpeedFactor.end());
         keybindings.insert(keybindings.end(), keybindings_CurrentSaveState.begin(), keybindings_CurrentSaveState.end());
         keybindings.insert(keybindings.end(), keybindings_Settings.begin(), keybindings_Settings.end());
         keybindings.insert(keybindings.end(), keybindings_View.begin(), keybindings_View.end());
@@ -856,14 +920,15 @@ void SettingsDialog::commonHotkeySettings(SettingsDialogAction action)
         default:
         case SettingsDialogAction::ConnectSignals:
             connect(keybinding.button, &KeybindButton::on_KeybindButton_KeybindingChanged, this, &SettingsDialog::on_KeybindButton_KeybindingChanged);
+            connect(keybinding.button, &KeybindButton::on_KeybindButton_Clicked, this, &SettingsDialog::on_KeybindButton_Clicked);
         case SettingsDialogAction::LoadSettings:
-            keybinding.button->setText(QString::fromStdString(CoreSettingsGetStringValue(keybinding.settingId)));
+            keybinding.button->SetText(QString::fromStdString(CoreSettingsGetStringValue(keybinding.settingId)));
             break;
         case SettingsDialogAction::LoadDefaultSettings:
-            keybinding.button->setText(QString::fromStdString(CoreSettingsGetDefaultStringValue(keybinding.settingId)));
+            keybinding.button->SetText(QString::fromStdString(CoreSettingsGetDefaultStringValue(keybinding.settingId)));
             break;
         case SettingsDialogAction::SaveSettings:
-            CoreSettingsSetValue(keybinding.settingId, keybinding.button->text().toStdString());
+            CoreSettingsSetValue(keybinding.settingId, keybinding.button->GetCurrentText().toStdString());
             break;
         }
     }
@@ -878,7 +943,7 @@ void SettingsDialog::commonPluginSettings(SettingsDialogAction action)
     bool pluginFound[] = {false, false, false, false};
 
     QComboBox *comboBox;
-    std::string pluginFileName;
+    QString pluginFileName;
     int index = 0;
 
     // clear combobox items
@@ -893,12 +958,15 @@ void SettingsDialog::commonPluginSettings(SettingsDialogAction action)
         comboBox = comboBoxArray[index];
 
         pluginFileName = action == SettingsDialogAction::LoadSettings ? 
-                            CoreSettingsGetStringValue(settingsIdArray[index]) :
-                            CoreSettingsGetDefaultStringValue(settingsIdArray[index]);
+                            QString::fromStdString(CoreSettingsGetStringValue(settingsIdArray[index])) :
+                            QString::fromStdString(CoreSettingsGetDefaultStringValue(settingsIdArray[index]));
+
+        // account for full path (<v0.3.5 we used the full path)
+        pluginFileName = QFileInfo(pluginFileName).fileName();
 
         comboBox->addItem(QString::fromStdString(p.Name), QString::fromStdString(p.File));
 
-        if (pluginFileName == p.File)
+        if (pluginFileName == QString::fromStdString(p.File))
         {
             comboBox->setCurrentText(QString::fromStdString(p.Name));
             pluginFound[index] = true;
@@ -916,63 +984,12 @@ void SettingsDialog::commonPluginSettings(SettingsDialogAction action)
     }
 }
 
-void SettingsDialog::commonInterfaceStyleSettings(SettingsDialogAction action)
-{
-#ifdef _WIN32
-    this->styleComboBox->clear();
-    this->styleComboBox->addItem("None", "");
-
-    QString currentStyle = action == SettingsDialogAction::LoadSettings ?
-        QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_Style)) :
-        QString::fromStdString(CoreSettingsGetDefaultStringValue(SettingsID::GUI_Style));
-
-    QString directory;
-    directory = QString::fromStdString(CoreGetSharedDataDirectory().string());
-    directory += "\\Styles\\";
-
-    QStringList filter;
-    filter << "*.qss";
-
-    bool styleFound = false;
-    QDirIterator stylesDirectoryIter(directory, filter, QDir::Files, QDirIterator::NoIteratorFlags);
-    while (stylesDirectoryIter.hasNext())
-    {
-        QString filePath = stylesDirectoryIter.next();
-        QFileInfo fileInfo(filePath);
-
-        this->styleComboBox->addItem(fileInfo.baseName(), filePath);
-        if (filePath == currentStyle)
-        {
-            styleFound = true;
-            this->styleComboBox->setCurrentText(fileInfo.baseName());
-        }
-    }
-
-    if (currentStyle.isEmpty())
-    {
-        this->styleComboBox->setCurrentText("None");
-        styleFound = true;
-    }
-
-    if (!styleFound)
-    {
-        this->styleComboBox->addItem("", "");
-        this->styleComboBox->setCurrentText("");
-    }
-
-    QString currentIconTheme = action == SettingsDialogAction::LoadSettings ?
-                QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_IconTheme)) :
-                QString::fromStdString(CoreSettingsGetDefaultStringValue(SettingsID::GUI_IconTheme));
-    this->iconThemeComboBox->setCurrentText(currentIconTheme);
-#endif // _WIN32
-}
-
 void SettingsDialog::setIconsForEmulationInfoText(void)
 {
     QLabel* labels[] = {
         this->infoIconLabel_0, this->infoIconLabel_1, this->infoIconLabel_2,
         this->infoIconLabel_3, this->infoIconLabel_4, this->infoIconLabel_5,
-        this->infoIconLabel_6, this->infoIconLabel_7
+        this->infoIconLabel_7, this->infoIconLabel_6, this->infoIconLabel_8
     };
 
     QIcon infoIcon = QIcon::fromTheme("information-line");
@@ -1060,6 +1077,23 @@ void SettingsDialog::closeEvent(QCloseEvent* event)
     }
 }
 
+void SettingsDialog::timerEvent(QTimerEvent* event)
+{
+    this->keybindButtonTimeLeft--;
+
+    if (this->currentKeybindButton != nullptr)
+    {
+        this->currentKeybindButton->SetSecondsLeft(this->keybindButtonTimeLeft);
+    }
+
+    if (this->keybindButtonTimeLeft == 0)
+    {
+        this->killTimer(this->keybindButtonTimerId);
+        this->keybindButtonTimerId = -1;
+        this->currentKeybindButton = nullptr;
+    }
+}
+
 void SettingsDialog::on_buttonBox_clicked(QAbstractButton *button)
 {
     QPushButton *pushButton = (QPushButton *)button;
@@ -1073,6 +1107,9 @@ void SettingsDialog::on_buttonBox_clicked(QAbstractButton *button)
         if (pushButton == okButton)
         {
             this->saveSettings();
+
+            // re-load OSD settings
+            OnScreenDisplayLoadSettings();
         }
 
         if (!this->applyPluginSettings())
@@ -1137,29 +1174,64 @@ void SettingsDialog::on_changeDevelopmentIPLRomPathButton_clicked(void)
 
 void SettingsDialog::on_KeybindButton_KeybindingChanged(KeybindButton* button)
 {
+    if (this->keybindButtonTimerId != -1)
+    {
+        this->killTimer(this->keybindButtonTimerId);
+        this->keybindButtonTimerId = -1;
+    }
+
+    if (this->currentKeybindButton != nullptr)
+    {
+        this->currentKeybindButton->Reset();
+        this->currentKeybindButton = nullptr;
+    }
+   
     if (!this->removeDuplicateHotkeysCheckBox->isChecked())
     {
         return;
     }
 
-    QString text = button->text();
+    QString text = button->GetCurrentText();
     if (text.isEmpty())
     {
         return;
     }
 
-    KeybindButton* keybindButtons[] = 
+    QList<KeybindButton*> rombrowserKeybindButtons =
     {
         this->startRomKeyButton,
         this->startComboKeyButton,
         this->shutdownKeyButton,
-        this->refreshRomListKeyButton,
         this->exitKeyButton,
+        this->graphicsSettingsKeyButton,
+        this->audioSettingsKeyButton,
+        this->rspSettingsKeyButton,
+        this->inputSettingsKeyButton,
+        this->settingsKeyButton,
+        this->logKeyButton,
+        this->refreshRomListKeyButton,
+    };
+
+    QList<KeybindButton*> emulationKeybindButtons =
+    {
+        this->shutdownKeyButton,
         this->softResetKeyButton,
         this->hardResetKeyButton,
-        this->pauseKeyButton, 
+        this->pauseKeyButton,
         this->generateBitmapKeyButton,
         this->limitFPSKeyButton,
+        this->speedFactor25KeyButton,
+        this->speedFactor50KeyButton,
+        this->speedFactor75KeyButton,
+        this->speedFactor100KeyButton,
+        this->speedFactor125KeyButton,
+        this->speedFactor150KeyButton,
+        this->speedFactor175KeyButton,
+        this->speedFactor200KeyButton,
+        this->speedFactor225KeyButton,
+        this->speedFactor250KeyButton,
+        this->speedFactor275KeyButton,
+        this->speedFactor300KeyButton,
         this->saveStateKeyButton,
         this->saveAsKeyButton, 
         this->loadStateKeyButton,
@@ -1176,18 +1248,62 @@ void SettingsDialog::on_KeybindButton_KeybindingChanged(KeybindButton* button)
         this->saveState7KeyButton,
         this->saveState8KeyButton,
         this->saveState9KeyButton,
+        this->exitKeyButton,
+        this->graphicsSettingsKeyButton,
+        this->audioSettingsKeyButton,
+        this->rspSettingsKeyButton,
+        this->inputSettingsKeyButton,
         this->settingsKeyButton,
+        this->logKeyButton,
         this->fullscreenKeyButton,
     };
-    
+
+    QList<KeybindButton*> keybindButtons;
+
+    if (rombrowserKeybindButtons.contains(button))
+    {
+        keybindButtons.append(rombrowserKeybindButtons);
+    }
+    if (emulationKeybindButtons.contains(button))
+    {
+        keybindButtons.append(emulationKeybindButtons);
+    }
+
     for (KeybindButton* keybindButton : keybindButtons)
     {
         if (keybindButton != button)
         {
-            if (keybindButton->text() == text)
+            if (keybindButton->GetCurrentText() == text)
             {
                 keybindButton->Clear();
             }
         }
     }
+}
+
+void SettingsDialog::on_KeybindButton_Clicked(KeybindButton* button)
+{
+    if (this->currentKeybindButton == button)
+    {
+        return;
+    }
+
+    if (this->currentKeybindButton != nullptr)
+    {
+        this->currentKeybindButton->Reset();
+        this->currentKeybindButton = nullptr;
+    }
+
+    if (this->keybindButtonTimerId != -1)
+    {
+        this->killTimer(this->keybindButtonTimerId);
+        this->keybindButtonTimerId = -1;
+    }
+
+    this->currentKeybindButton  = button;
+    this->keybindButtonTimeLeft = 5;
+    this->keybindButtonTimerId  = this->startTimer(1000);
+
+    // notify button
+    this->currentKeybindButton->SetSecondsLeft(5);
 }

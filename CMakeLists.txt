@@ -6,9 +6,11 @@ cmake_minimum_required(VERSION 3.15)
 option(PORTABLE_INSTALL "Portable Installation" ON)
 option(NO_GIT_CLONE     "Disables git clone usage for 3rdParty dependencies" OFF)
 option(UPDATER          "Enables updater" ${PORTABLE_INSTALL})
+option(APPIMAGE_UPDATER "Enables AppImage updater" OFF)
 option(DISCORD_RPC      "Enables Discord Rich Presence" ON)
-option(USE_QT5          "Enables Qt5 instead of Qt6 (will be removed in the future)" OFF)
 option(USE_CCACHE       "Enables usage of ccache when ccache has been found" ON)
+option(FORCE_XCB        "Forces Qt to use the xcb platform on linux" ${LINUX})
+option(NO_RUST          "Disables the building of rust subprojects" OFF)
 
 project(RMG)
 
@@ -35,9 +37,24 @@ if (NOT PORTABLE_INSTALL AND (WIN32 OR MSYS))
     set(PORTABLE_INSTALL ON)
 endif()
 
-if (NOT PORTABLE_INSTALL AND UPDATER)
+if (NOT PORTABLE_INSTALL AND UPDATER AND NOT APPIMAGE_UPDATER)
     message(WARNING "Not-Portable builds don't support the updater, disabling UPDATER")
     set(UPDATER OFF)
+endif()
+
+if (APPIMAGE_UPDATER AND (WIN32 OR MSYS))
+    message(WARNING "AppImage updater not supported on windows, disabling APPIMAGE_UPDATER!")
+    set(APPIMAGE_UPDATER OFF)
+endif()
+
+if (UPDATER AND NOT (WIN32 OR MSYS) AND NOT APPIMAGE_UPDATER)
+    message(WARNING "Only AppImage updater is supported on linux, disabling UPDATER!")
+    set(UPDATER OFF)
+endif()
+
+if (FORCE_XCB AND (WIN32 OR MSYS))
+    message(WARNING "XCB Qt platform not supported on windows, disabling FORCE_XCB!")
+    set(FORCE_XCB OFF)
 endif()
 
 if (PORTABLE_INSTALL)
@@ -59,15 +76,8 @@ else()
     set(ICON_INSTALL_PATH "share/icons/hicolor/scalable/apps/")
 endif()
 
-if (USE_QT5)
-    set(QT_VERSION "Qt5")
-    set(USE_QT6 OFF)
-else(USE_QT5)
-    set(QT_VERSION "Qt6")
-    set(USE_QT6 ON)
-endif(USE_QT5)
-
 add_subdirectory(Source/3rdParty)
+add_subdirectory(Source/3rdParty/7-Zip)
 
 add_subdirectory(Source/RMG-Core)
 add_subdirectory(Source/RMG)
@@ -95,6 +105,9 @@ install(FILES ${MUPEN64PLUSCORE_LIB}
     DESTINATION ${CORE_INSTALL_PATH}
 )
 install(FILES ${MUPEN64PLUSCORE_INI} Data/font.ttf
+    DESTINATION ${DATA_INSTALL_PATH}
+)
+install(FILES ${SDL_GAMECONTROLLERDB}
     DESTINATION ${DATA_INSTALL_PATH}
 )
 file(GLOB GENERATED_CHEAT_FILES ${CMAKE_SOURCE_DIR}/Data/Cheats/Generated/*.cht)

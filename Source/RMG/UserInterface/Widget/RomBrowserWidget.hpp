@@ -67,8 +67,12 @@ class RomBrowserWidget : public QStackedWidget
     QElapsedTimer romSearcherTimer;
     Thread::RomSearcherThread* romSearcherThread = nullptr;
 
+    bool sortRomResults = false;
+    
     int listViewSortSection = 0;
     int listViewSortOrder = 0;
+
+    QStringList columnNames;
 
     QMenu*   contextMenu;
     QAction* action_PlayGame;
@@ -78,9 +82,14 @@ class RomBrowserWidget : public QStackedWidget
     QAction* action_ChangeRomDirectory;
     QAction* action_RomInformation;
     QAction* action_EditGameSettings;
+    QAction* action_EditGameInputSettings;
     QAction* action_EditCheats;
+    QAction* action_ResetColumnSizes;
     QAction* action_SetCoverImage;
     QAction* action_RemoveCoverImage;
+
+    QMenu*   menu_Columns;
+    QAction* action_ColumnsMenuEntry;
 
     QString coversDirectory;
 
@@ -90,24 +99,27 @@ class RomBrowserWidget : public QStackedWidget
 
     QString getCurrentRom(void);
 
-    QIcon getCurrentCover(CoreRomHeader header, CoreRomSettings settings, QString& coverFileName);
+    QIcon getCurrentCover(QString file, CoreRomHeader header, CoreRomSettings settings, QString& coverFileName);
 
   protected:
     void timerEvent(QTimerEvent *event) Q_DECL_OVERRIDE;
 
   private slots:
     void on_DoubleClicked(const QModelIndex& index);
-    void customContextMenuRequested(QPoint point);
+    void customContextMenuRequested(QPoint position);
+    void generateColumnsMenu(void);
 
     void on_listViewWidget_sortIndicatorChanged(int logicalIndex, Qt::SortOrder sortOrder);
     void on_listViewWidget_sectionResized(int logicalIndex, int oldWidth, int newWidth);
+    void on_listViewWidget_sectionMoved(int logicalIndex, int oldVisualIndex, int newVisualIndex);
+    void on_listViewWidget_headerContextMenuRequested(QPoint position);
     
     void on_gridViewWidget_iconSizeChanged(const QSize& size);
 
     void on_ZoomIn(void);
     void on_ZoomOut(void);
 
-    void on_RomBrowserThread_RomFound(QString file, CoreRomType type, CoreRomHeader header, CoreRomSettings settings);
+    void on_RomBrowserThread_RomFound(QString file, CoreRomType type, CoreRomHeader header, CoreRomSettings settings, int index, int count);
     void on_RomBrowserThread_Finished(bool canceled);
 
     void on_Action_PlayGame(void);
@@ -117,7 +129,9 @@ class RomBrowserWidget : public QStackedWidget
     void on_Action_ChangeRomDirectory(void);
     void on_Action_RomInformation(void);
     void on_Action_EditGameSettings(void);
+    void on_Action_EditGameInputSettings(void);
     void on_Action_EditCheats(void);
+    void on_Action_ResetColumnSizes(void);
     void on_Action_SetCoverImage(void);
     void on_Action_RemoveCoverImage(void);
 
@@ -125,6 +139,7 @@ class RomBrowserWidget : public QStackedWidget
     void PlayGame(QString);
     void PlayGameWith(CoreRomType, QString);
     void EditGameSettings(QString);
+    void EditGameInputSettings(QString);
     void Cheats(QString);
     void ChangeRomDirectory(void);
     void RomInformation(QString);

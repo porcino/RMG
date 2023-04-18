@@ -17,6 +17,7 @@
 #endif // UPDATER
 #include "UserInterface/EventFilter.hpp"
 #include "Utilities/QtKeyToSdl2Key.hpp"
+#include "OnScreenDisplay.hpp"
 #include "Callbacks.hpp"
 #include "VidExt.hpp"
 
@@ -24,6 +25,7 @@
 
 #include <QCoreApplication>
 #include <QDesktopServices>
+#include <QStyleFactory>
 #include <QFileDialog>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -34,6 +36,7 @@
 #include <QUrl>
 #include <QActionGroup> 
 #include <QTimer>
+#include <cmath>
 
 using namespace UserInterface;
 
@@ -45,7 +48,7 @@ MainWindow::~MainWindow()
 {
 }
 
-bool MainWindow::Init(QApplication* app)
+bool MainWindow::Init(QApplication* app, bool showUI)
 {
     if (!CoreInit())
     {
@@ -61,14 +64,16 @@ bool MainWindow::Init(QApplication* app)
     this->configureTheme(app);
 
     this->initializeUI();
-    this->configureUI(app);
+    this->configureUI(app, showUI);
 
     this->connectActionSignals();
     this->configureActions();
     this->updateActions(false, false);
 
 #ifdef UPDATER
-    this->checkForUpdates();
+    this->checkForUpdates(true, false);
+#else
+    this->action_Help_Update->setVisible(false);
 #endif // UPDATER
 
     this->initializeEmulationThread();
@@ -87,8 +92,15 @@ bool MainWindow::Init(QApplication* app)
         return false;
     }
 
+    // add actions when there's no UI
+    if (!showUI)
+    {
+        this->addActions();
+    }
+
     connect(coreCallBacks, &CoreCallbacks::OnCoreDebugCallback, this, &MainWindow::on_Core_DebugCallback);
     connect(coreCallBacks, &CoreCallbacks::OnCoreDebugCallback, &this->logDialog, &Dialog::LogDialog::AddLogLine);
+    connect(coreCallBacks, &CoreCallbacks::OnCoreStateCallback, this, &MainWindow::on_Core_StateCallback);
     connect(app, &QGuiApplication::applicationStateChanged, this, &MainWindow::on_QGuiApplication_applicationStateChanged);
 
     return true;
@@ -98,6 +110,13 @@ void MainWindow::OpenROM(QString file, QString disk, bool fullscreen, bool quitA
 {
     this->ui_LaunchInFullscreen = fullscreen;
     this->ui_QuitAfterEmulation = quitAfterEmulation;
+
+    // ensure we don't switch to the ROM browser
+    // because it can cause a slight flicker,
+    // if we just ensure the UI is in an emulation
+    // state, then the transition will be smoother
+    this->updateUI(true, false);
+    
     this->launchEmulationThread(file, disk);
 }
 
@@ -109,8 +128,12 @@ void MainWindow::closeEvent(QCloseEvent *event)
     if (!this->ui_QuitAfterEmulation && 
         !this->emulationThread->isRunning())
     {
-        this->storeGeometry();    
+        this->storeGeometry();
     }
+
+    // store toolbar location to settings
+    Qt::ToolBarArea toolbarArea = this->toolBarArea(this->toolBar);
+    CoreSettingsSetValue(SettingsID::GUI_ToolbarArea, this->getToolbarSettingAreaFromArea(toolbarArea));
 
     this->ui_NoSwitchToRomBrowser = true;
     this->on_Action_System_Shutdown();
@@ -150,6 +173,8 @@ void MainWindow::initializeUI(void)
             &MainWindow::on_RomBrowser_PlayGameWith);
     connect(this->ui_Widget_RomBrowser, &Widget::RomBrowserWidget::EditGameSettings, this,
             &MainWindow::on_RomBrowser_EditGameSettings);
+    connect(this->ui_Widget_RomBrowser, &Widget::RomBrowserWidget::EditGameInputSettings, this,
+            &MainWindow::on_RomBrowser_EditGameInputSettings);
     connect(this->ui_Widget_RomBrowser, &Widget::RomBrowserWidget::Cheats, this,
             &MainWindow::on_RomBrowser_Cheats);
     connect(this->ui_Widget_RomBrowser, &Widget::RomBrowserWidget::ChangeRomDirectory, this,
@@ -163,23 +188,52 @@ void MainWindow::initializeUI(void)
             &MainWindow::on_EventFilter_KeyReleased);
 }
 
-void MainWindow::configureUI(QApplication* app)
+void MainWindow::configureUI(QApplication* app, bool showUI)
 {
     this->setCentralWidget(this->ui_Widgets);
 
     QString geometry;
+    bool maximized;
+
     geometry = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::RomBrowser_Geometry));
-    if (!geometry.isEmpty())
+    maximized = CoreSettingsGetBoolValue(SettingsID::RomBrowser_Maximized);
+    if (maximized)
+    {
+        this->showMaximized();
+    }
+    else if (!geometry.isEmpty())
     {
         this->restoreGeometry(QByteArray::fromBase64(geometry.toLocal8Bit()));
     }
 
-    this->ui_ShowToolbar = CoreSettingsGetBoolValue(SettingsID::GUI_Toolbar);
-    this->ui_ShowStatusbar = CoreSettingsGetBoolValue(SettingsID::GUI_StatusBar);
+    this->ui_ShowUI = showUI;
 
+    if (this->ui_ShowUI)
+    {
+        this->ui_ShowMenubar = true;
+        this->ui_ShowToolbar = CoreSettingsGetBoolValue(SettingsID::GUI_Toolbar);
+        this->ui_ShowStatusbar = CoreSettingsGetBoolValue(SettingsID::GUI_StatusBar);
+    }
+    else
+    {
+        this->ui_ShowMenubar = false;
+        this->ui_ShowToolbar = false;
+        this->ui_ShowStatusbar = false;
+    }
+
+    this->menuBar()->setVisible(this->ui_ShowMenubar);
     this->toolBar->setVisible(this->ui_ShowToolbar);
     this->statusBar()->setVisible(this->ui_ShowStatusbar);
     this->statusBar()->addPermanentWidget(this->ui_StatusBar_Label, 1);
+
+    // set toolbar position according to setting
+    int toolbarAreaSetting = CoreSettingsGetIntValue(SettingsID::GUI_ToolbarArea);
+    Qt::ToolBarArea toolbarArea = this->getToolbarAreaFromSettingArea(toolbarAreaSetting);
+    if (this->toolBarArea(this->toolBar) != toolbarArea)
+    {
+        this->removeToolBar(this->toolBar);
+        this->addToolBar(toolbarArea, this->toolBar);
+    }
 
     this->ui_TimerTimeout = CoreSettingsGetIntValue(SettingsID::GUI_StatusbarMessageDuration);
 
@@ -201,45 +255,102 @@ void MainWindow::configureUI(QApplication* app)
 
 void MainWindow::configureTheme(QApplication* app)
 {
+    // we have to retrieve the fallback icon theme
+    // before applying the app theme
+    QString fallbackThemeName = QIcon::themeName();
+
     // set theme style
     QString fallbackStyleSheet = "QTableView { border: none; color: #0096d3; selection-color: #FFFFFF; selection-background-color: #0096d3; }";
-
-#ifndef _WIN32
     this->setStyleSheet(fallbackStyleSheet);
 
-    // set icon theme
-    QString fallbackThemeName = QIcon::themeName();
-    QPalette palette = app->palette();
-    bool dark = palette.windowText().color().value() > palette.window().color().value();
-    QIcon::setThemeName(dark ? "white" : "black");
+    // set application theme
+    QString theme = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_Theme));
+    if (theme == "Native")
+    {
+        // do nothing
+    }
+    else if (theme == "Fusion")
+    {
+        app->setPalette(QApplication::style()->standardPalette());
+        app->setStyleSheet(QString());
+        app->setStyle(QStyleFactory::create("Fusion"));
+    }
+    else if (theme == "Fusion Dark")
+    {
+        // adapted from https://gist.github.com/QuantumCD/6245215
+        app->setStyle(QStyleFactory::create("Fusion"));
+
+        const QColor lighterGray(75, 75, 75);
+        const QColor darkGray(53, 53, 53);
+        const QColor gray(128, 128, 128);
+        const QColor black(25, 25, 25);
+        const QColor blue(198, 238, 255);
+
+        QPalette darkPalette;
+        darkPalette.setColor(QPalette::Window, darkGray);
+        darkPalette.setColor(QPalette::WindowText, Qt::white);
+        darkPalette.setColor(QPalette::Base, black);
+        darkPalette.setColor(QPalette::AlternateBase, darkGray);
+        darkPalette.setColor(QPalette::ToolTipBase, darkGray);
+        darkPalette.setColor(QPalette::ToolTipText, Qt::white);
+        darkPalette.setColor(QPalette::Text, Qt::white);
+        darkPalette.setColor(QPalette::Button, darkGray);
+        darkPalette.setColor(QPalette::ButtonText, Qt::white);
+        darkPalette.setColor(QPalette::Link, blue);
+        darkPalette.setColor(QPalette::Highlight, lighterGray);
+        darkPalette.setColor(QPalette::HighlightedText, Qt::white);
+        darkPalette.setColor(QPalette::PlaceholderText, QColor(Qt::white).darker());
+
+        darkPalette.setColor(QPalette::Active, QPalette::Button, darkGray);
+        darkPalette.setColor(QPalette::Disabled, QPalette::ButtonText, gray);
+        darkPalette.setColor(QPalette::Disabled, QPalette::WindowText, gray);
+        darkPalette.setColor(QPalette::Disabled, QPalette::Text, gray);
+        darkPalette.setColor(QPalette::Disabled, QPalette::Light, darkGray);
+
+        app->setPalette(darkPalette);
+
+        app->setStyleSheet("QToolTip { color: #ffffff; background-color: #2a82da; border: 1px solid white; }");
+    }
+    else if (theme.endsWith(".qss"))
+    {
+        QString themePath;
+        themePath = QString::fromStdString(CoreGetSharedDataDirectory().string());
+        themePath += "/Styles/";
+        themePath += theme;
+
+        // use Fusion as a base for the stylesheet
+        app->setPalette(QApplication::style()->standardPalette());
+        app->setStyleSheet(QString());
+        app->setStyle(QStyleFactory::create("Fusion"));
+
+        // set the stylesheet theme,
+        // if the file exists and can be opened
+        QFile themeFile(themePath);
+        if (themeFile.exists() && 
+            themeFile.open(QIODevice::ReadOnly))
+        {
+            app->setStyleSheet(themeFile.readAll());
+        }
+    }
+
+    // set application icon theme
+    QString iconTheme = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_IconTheme));
+    if (iconTheme == "White" || iconTheme == "Black")
+    {
+        QIcon::setThemeName(iconTheme.toLower());
+    }
+    else
+    { // fallback to automatic
+        QPalette palette = app->palette();
+        bool dark = palette.windowText().color().value() > palette.window().color().value();
+        QIcon::setThemeName(dark ? "white" : "black");
+    }
 
     // fallback for icons we don't provide (i.e standard system icons)
     QIcon::setFallbackThemeName(fallbackThemeName);
-#else // _WIN32
-    
-    // set icon theme
-    QIcon::setThemeName(QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_IconTheme)));
-
-    QString styleFilePath = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_Style));
-    QFile styleFile(styleFilePath);
-
-    if (styleFilePath.isEmpty() || !styleFile.exists())
-    {
-        this->setStyleSheet(fallbackStyleSheet);
-        return;
-    }
-
-    if (!styleFile.open(QIODevice::ReadOnly))
-    {
-        this->setStyleSheet(fallbackStyleSheet);
-        return;
-    }
-
-    app->setStyleSheet(styleFile.readAll());
-#endif // _WIN32
 }
 
-void MainWindow::showErrorMessage(QString text, QString details = "")
+void MainWindow::showErrorMessage(QString text, QString details)
 {
     QMessageBox msgBox(this);
     msgBox.setIcon(QMessageBox::Icon::Critical);
@@ -293,10 +404,12 @@ void MainWindow::storeGeometry(void)
     }
 
     this->ui_Geometry = this->saveGeometry();
+    this->ui_Geometry_Maximized = this->isMaximized();
     this->ui_Geometry_Saved = true;
 
     std::string geometryStr = this->ui_Geometry.toBase64().toStdString();
     CoreSettingsSetValue(SettingsID::RomBrowser_Geometry, geometryStr);
+    CoreSettingsSetValue(SettingsID::RomBrowser_Maximized, this->ui_Geometry_Maximized);
 }
 
 void MainWindow::loadGeometry(void)
@@ -306,23 +419,45 @@ void MainWindow::loadGeometry(void)
         return;
     }
 
-    this->setMinimumSize(0, 0);
-    this->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    this->restoreGeometry(this->ui_Geometry);
+    if (this->ui_Geometry_Maximized)
+    {
+        this->showMaximized();
+    }
+    else
+    {
+        this->restoreGeometry(this->ui_Geometry);
+    }
 
     if (this->isFullScreen())
     {
         this->showNormal();
     }
 
-    if (this->menuBar()->isHidden())
+    if (this->ui_ShowMenubar && this->menuBar()->isHidden())
     {
         this->menuBar()->show();
+    }
+    else if (!this->ui_ShowMenubar && !this->menuBar()->isHidden())
+    {
+        this->menuBar()->hide();
+    }
+
+    if (this->ui_ShowToolbar && this->toolBar->isHidden())
+    {
+        this->toolBar->show();
+    }
+    else if (!this->ui_ShowToolbar && !this->toolBar->isHidden())
+    {
+        this->toolBar->hide();
     }
 
     if (this->ui_ShowStatusbar && this->statusBar()->isHidden())
     {
         this->statusBar()->show();
+    }
+    else if (!this->ui_ShowStatusbar && !this->statusBar()->isHidden())
+    {
+        this->statusBar()->hide();
     }
 
     this->ui_Geometry_Saved = false;
@@ -382,26 +517,28 @@ void MainWindow::launchEmulationThread(QString cartRom, QString diskRom)
 
     if (!CoreArePluginsReady())
     {
+        // always go back to ROM Browser
+        this->ui_NoSwitchToRomBrowser = false;
+        this->updateUI(false, false);
+
         this->showErrorMessage("CoreArePluginsReady() Failed", QString::fromStdString(CoreGetError()));
         return;
     }
 
-    this->ui_AllowManualResizing = CoreSettingsGetBoolValue(SettingsID::GUI_AllowManualResizing);
     this->ui_HideCursorInEmulation = CoreSettingsGetBoolValue(SettingsID::GUI_HideCursorInEmulation);
     this->ui_HideCursorInFullscreenEmulation = CoreSettingsGetBoolValue(SettingsID::GUI_HideCursorInFullscreenEmulation);
-    this->ui_ShowToolbar = CoreSettingsGetBoolValue(SettingsID::GUI_Toolbar);
-    this->ui_ShowStatusbar = CoreSettingsGetBoolValue(SettingsID::GUI_StatusBar);
+
+    if (this->ui_ShowUI)
+    {
+        this->ui_ShowToolbar = CoreSettingsGetBoolValue(SettingsID::GUI_Toolbar);
+        this->ui_ShowStatusbar = CoreSettingsGetBoolValue(SettingsID::GUI_StatusBar);
+    }
 
     this->ui_Widget_OpenGL->SetHideCursor(this->ui_HideCursorInEmulation);
 
     this->emulationThread->SetRomFile(cartRom);
     this->emulationThread->SetDiskFile(diskRom);
     this->emulationThread->start();
-}
-
-void MainWindow::launchEmulationThread(QString file)
-{
-    this->launchEmulationThread(file, "");
 }
 
 void MainWindow::updateActions(bool inEmulation, bool isPaused)
@@ -435,6 +572,7 @@ void MainWindow::updateActions(bool inEmulation, bool isPaused)
     this->action_System_LimitFPS->setEnabled(inEmulation);
     this->action_System_LimitFPS->setShortcut(QKeySequence(keyBinding));
     this->action_System_LimitFPS->setChecked(CoreIsSpeedLimiterEnabled());
+    this->menuSpeedFactor->setEnabled(inEmulation);
     keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::KeyBinding_SaveState));
     this->action_System_SaveState->setEnabled(inEmulation);
     this->action_System_SaveState->setShortcut(QKeySequence(keyBinding));
@@ -457,14 +595,30 @@ void MainWindow::updateActions(bool inEmulation, bool isPaused)
     keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::KeyBinding_Exit));
     this->action_System_Exit->setShortcut(QKeySequence(keyBinding));
 
-    // configure keybindings for save slots
-    QAction* slotActions[] =
+    // configure keybindings for speed factor
+    QAction* speedActions[] =
     {
-        this->actionSlot_0, this->actionSlot_1, this->actionSlot_2,
-        this->actionSlot_3, this->actionSlot_4, this->actionSlot_5,
-        this->actionSlot_6, this->actionSlot_7, this->actionSlot_8,
-        this->actionSlot_9
+        this->actionSpeed25, this->actionSpeed50, this->actionSpeed75,
+        this->actionSpeed100, this->actionSpeed125, this->actionSpeed150,
+        this->actionSpeed175, this->actionSpeed200, this->actionSpeed225,
+        this->actionSpeed250, this->actionSpeed275, this->actionSpeed300
     };
+    SettingsID speedKeybindSettingsId[] =
+    {
+        SettingsID::KeyBinding_SpeedFactor25, SettingsID::KeyBinding_SpeedFactor50,
+        SettingsID::KeyBinding_SpeedFactor75, SettingsID::KeyBinding_SpeedFactor100,
+        SettingsID::KeyBinding_SpeedFactor125, SettingsID::KeyBinding_SpeedFactor150,
+        SettingsID::KeyBinding_SpeedFactor175, SettingsID::KeyBinding_SpeedFactor200,
+        SettingsID::KeyBinding_SpeedFactor225, SettingsID::KeyBinding_SpeedFactor250,
+        SettingsID::KeyBinding_SpeedFactor275, SettingsID::KeyBinding_SpeedFactor300
+    };
+    for (int i = 0; i < 12; i++)
+    {
+        keyBinding = QString::fromStdString(CoreSettingsGetStringValue(speedKeybindSettingsId[i]));
+        speedActions[i]->setShortcut(QKeySequence(keyBinding));
+    }
+
+    // configure keybindings for save slots
     SettingsID slotKeybindSettingsId[] =
     {
         SettingsID::KeyBinding_SaveStateSlot0, SettingsID::KeyBinding_SaveStateSlot1,
@@ -473,16 +627,29 @@ void MainWindow::updateActions(bool inEmulation, bool isPaused)
         SettingsID::KeyBinding_SaveStateSlot6, SettingsID::KeyBinding_SaveStateSlot7,
         SettingsID::KeyBinding_SaveStateSlot8, SettingsID::KeyBinding_SaveStateSlot9
     };
+    int currentSlot = CoreGetSaveStateSlot();
     for (int i = 0; i < 10; i++)
     {
         keyBinding = QString::fromStdString(CoreSettingsGetStringValue(slotKeybindSettingsId[i]));
-        slotActions[i]->setShortcut(QKeySequence(keyBinding));
+        this->ui_SlotActions[i]->setShortcut(QKeySequence(keyBinding));
+        this->ui_SlotActions[i]->setChecked(i == currentSlot);
     }
 
+    // configure text and filename data for save slots
+    this->updateSaveStateSlotActions(inEmulation, isPaused);
+
+    keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::KeyBinding_GraphicsSettings));
     this->action_Settings_Graphics->setEnabled(CorePluginsHasConfig(CorePluginType::Gfx));
+    this->action_Settings_Graphics->setShortcut(QKeySequence(keyBinding));
+    keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::KeyBinding_AudioSettings));
     this->action_Settings_Audio->setEnabled(CorePluginsHasConfig(CorePluginType::Audio));
+    this->action_Settings_Audio->setShortcut(QKeySequence(keyBinding));
+    keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::KeyBinding_RspSettings));
     this->action_Settings_Rsp->setEnabled(CorePluginsHasConfig(CorePluginType::Rsp));
+    this->action_Settings_Rsp->setShortcut(QKeySequence(keyBinding));
+    keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::KeyBinding_InputSettings));
     this->action_Settings_Input->setEnabled(CorePluginsHasConfig(CorePluginType::Input));
+    this->action_Settings_Input->setShortcut(QKeySequence(keyBinding));
     keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::KeyBinding_Settings));
     this->action_Settings_Settings->setShortcut(QKeySequence(keyBinding));
 
@@ -493,101 +660,226 @@ void MainWindow::updateActions(bool inEmulation, bool isPaused)
     keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::KeyBinding_RefreshROMList));
     this->action_View_RefreshRoms->setEnabled(!inEmulation);
     this->action_View_RefreshRoms->setShortcut(QKeySequence(keyBinding));
+    keyBinding = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::Keybinding_ViewLog));
+    this->action_View_Log->setShortcut(QKeySequence(keyBinding));
     this->action_View_ClearRomCache->setEnabled(!inEmulation);
 }
 
-void MainWindow::addFullscreenActions(void)
+void MainWindow::updateSaveStateSlotActions(bool inEmulation, bool isPaused)
 {
-    this->addAction(this->action_System_StartRom);
-    this->addAction(this->action_System_OpenCombo);
-    this->addAction(this->action_System_Shutdown);
-    this->addAction(this->action_System_SoftReset);
-    this->addAction(this->action_System_HardReset);
-    this->addAction(this->action_System_Pause);
-    this->addAction(this->action_System_Screenshot);
-    this->addAction(this->action_System_LimitFPS);
-    this->addAction(this->action_System_SaveState);
-    this->addAction(this->action_System_SaveAs);
-    this->addAction(this->action_System_LoadState);
-    this->addAction(this->action_System_Load);
-    this->addAction(this->actionSlot_0);
-    this->addAction(this->actionSlot_1);
-    this->addAction(this->actionSlot_2);
-    this->addAction(this->actionSlot_3);
-    this->addAction(this->actionSlot_4);
-    this->addAction(this->actionSlot_5);
-    this->addAction(this->actionSlot_6);
-    this->addAction(this->actionSlot_7);
-    this->addAction(this->actionSlot_8);
-    this->addAction(this->actionSlot_9);
-    this->addAction(this->action_System_Cheats);
-    this->addAction(this->action_System_GSButton);
-    this->addAction(this->action_System_Exit);
-    this->addAction(this->action_Settings_Graphics);
-    this->addAction(this->action_Settings_Audio);
-    this->addAction(this->action_Settings_Rsp);
-    this->addAction(this->action_Settings_Input);
-    this->addAction(this->action_Settings_Settings);
-    this->addAction(this->action_View_Fullscreen);
-    this->addAction(this->action_Help_Github);
-    this->addAction(this->action_Help_About);
+    std::filesystem::path saveStatePath;
+
+    // do nothing when paused
+    if (isPaused)
+    {
+        return;
+    }
+
+    for (int i = 0; i < 10; i++)
+    {
+        if (inEmulation &&
+            CoreGetSaveStatePath(i, saveStatePath))
+        {
+            this->ui_SlotActions[i]->setData(QString::fromStdString(saveStatePath.string()));
+            this->ui_SlotActions[i]->setText(this->getSaveStateSlotText(this->ui_SlotActions[i], i));
+        }
+        else
+        {
+            this->ui_SlotActions[i]->setData("");
+            this->ui_SlotActions[i]->setText(this->getSaveStateSlotText(this->ui_SlotActions[i], i));
+        }
+    }
 }
 
-void MainWindow::removeFullscreenActions(void)
+void MainWindow::addActions(void)
 {
-    this->removeAction(this->action_System_StartRom);
-    this->removeAction(this->action_System_OpenCombo);
-    this->removeAction(this->action_System_Shutdown);
-    this->removeAction(this->action_System_SoftReset);
-    this->removeAction(this->action_System_HardReset);
-    this->removeAction(this->action_System_Pause);
-    this->removeAction(this->action_System_Screenshot);
-    this->removeAction(this->action_System_LimitFPS);
-    this->removeAction(this->action_System_SaveState);
-    this->removeAction(this->action_System_SaveAs);
-    this->removeAction(this->action_System_LoadState);
-    this->removeAction(this->action_System_Load);
-    this->removeAction(this->actionSlot_0);
-    this->removeAction(this->actionSlot_1);
-    this->removeAction(this->actionSlot_2);
-    this->removeAction(this->actionSlot_3);
-    this->removeAction(this->actionSlot_4);
-    this->removeAction(this->actionSlot_5);
-    this->removeAction(this->actionSlot_6);
-    this->removeAction(this->actionSlot_7);
-    this->removeAction(this->actionSlot_8);
-    this->removeAction(this->actionSlot_9);
-    this->removeAction(this->action_System_Cheats);
-    this->removeAction(this->action_System_GSButton);
-    this->removeAction(this->action_System_Exit);
-    this->removeAction(this->action_Settings_Graphics);
-    this->removeAction(this->action_Settings_Audio);
-    this->removeAction(this->action_Settings_Rsp);
-    this->removeAction(this->action_Settings_Input);
-    this->removeAction(this->action_Settings_Settings);
-    this->removeAction(this->action_View_Fullscreen);
-    this->removeAction(this->action_Help_Github);
-    this->removeAction(this->action_Help_About);
+    if (this->ui_AddedActions)
+    {
+        return;
+    }
+
+    for (QAction* action : this->ui_Actions)
+    {
+        this->addAction(action);
+    }
+
+    this->ui_AddedActions = true;
 }
+
+void MainWindow::removeActions(void)
+{
+    if (!this->ui_AddedActions)
+    {
+        return;
+    }
+
+    for (QAction* action : this->ui_Actions)
+    {
+        this->removeAction(action);
+    }
+
+    this->ui_AddedActions = false;
+}
+
+QString MainWindow::getSaveStateSlotDateTimeText(QAction* action)
+{
+    QString saveStateSlotText;
+    QString filePath;
+
+    // retrieve file name
+    filePath = action->data().toString();
+
+    // check if file exists, if it does,
+    // return a string with the datetime
+    QFileInfo saveStateFileInfo(filePath);
+    if (!filePath.isEmpty() && saveStateFileInfo.exists())
+    {
+        saveStateSlotText = saveStateFileInfo.lastModified().toString("dd/MM/yyyy hh:mm");
+    }
+
+    return saveStateSlotText;
+}
+
+QString MainWindow::getSaveStateSlotText(QAction* action, int slot)
+{
+    QString saveStateSlotText;
+    QString dateTimeText;
+    QString filePath;
+
+    // base text
+    saveStateSlotText = "Slot " + QString::number(slot);
+
+    // add date and time text when it isnt empty
+    dateTimeText = this->getSaveStateSlotDateTimeText(action);
+    if (!dateTimeText.isEmpty())
+    {
+        saveStateSlotText += " - ";
+        saveStateSlotText += dateTimeText;
+    }
+
+    return saveStateSlotText;
+}
+
+int MainWindow::getToolbarSettingAreaFromArea(Qt::ToolBarArea area)
+{
+    switch (area)
+    {
+    case Qt::ToolBarArea::TopToolBarArea:
+        return 0;
+    case Qt::ToolBarArea::BottomToolBarArea:
+        return 1;
+    case Qt::ToolBarArea::LeftToolBarArea:
+        return 2;
+    case Qt::ToolBarArea::RightToolBarArea:
+        return 3;
+
+    default:
+        return 0;
+    }
+}
+
+Qt::ToolBarArea MainWindow::getToolbarAreaFromSettingArea(int value)
+{
+    switch (value)
+    {
+    default:
+    case 0:
+        return Qt::ToolBarArea::TopToolBarArea;
+    case 1:
+        return Qt::ToolBarArea::BottomToolBarArea;
+    case 2: 
+        return Qt::ToolBarArea::LeftToolBarArea;
+    case 3:
+        return Qt::ToolBarArea::RightToolBarArea;
+    }
+}
+
 
 void MainWindow::configureActions(void)
 {
+    // configure actions list
+    this->ui_Actions.append(
+    {
+        // System actions
+        this->action_System_StartRom, this->action_System_OpenCombo,
+        this->action_System_Shutdown, this->action_System_SoftReset,
+        this->action_System_HardReset, this->action_System_Pause,
+        this->action_System_Screenshot, this->action_System_LimitFPS,
+        this->actionSpeed25, this->actionSpeed50, this->actionSpeed75,
+        this->actionSpeed100, this->actionSpeed125, this->actionSpeed150,
+        this->actionSpeed175, this->actionSpeed200, this->actionSpeed225,
+        this->actionSpeed250, this->actionSpeed275, this->actionSpeed300,
+        this->action_System_SaveState, this->action_System_SaveAs,
+        this->action_System_LoadState, this->action_System_Load,
+        this->actionSlot_0, this->actionSlot_1, this->actionSlot_2,
+        this->actionSlot_3, this->actionSlot_4, this->actionSlot_5,
+        this->actionSlot_6, this->actionSlot_7, this->actionSlot_8,
+        this->actionSlot_9, this->action_System_Cheats,
+        this->action_System_GSButton, this->action_System_Exit,
+        // Settings actions
+        this->action_Settings_Graphics, this->action_Settings_Audio,
+        this->action_Settings_Rsp, this->action_Settings_Input,
+        this->action_Settings_Settings,
+        // View actions
+        this->action_View_Fullscreen, this->action_View_RefreshRoms,
+        this->action_View_Log,
+        // Help actions
+        this->action_Help_Github, this->action_Help_About,
+    });
+
     // configure save slot actions
-    QActionGroup* slotActionGroup = new QActionGroup(this);
-    QAction* slotActions[] =
+    this->ui_SlotActions.append(
     {
         this->actionSlot_0, this->actionSlot_1, this->actionSlot_2,
         this->actionSlot_3, this->actionSlot_4, this->actionSlot_5,
         this->actionSlot_6, this->actionSlot_7, this->actionSlot_8,
         this->actionSlot_9
+    });
+
+    // configure emulation speed actions
+    QActionGroup* speedActionGroup = new QActionGroup(this);
+    QAction* speedActions[] =
+    {
+        this->actionSpeed25, this->actionSpeed50, this->actionSpeed75,
+        this->actionSpeed100, this->actionSpeed125, this->actionSpeed150,
+        this->actionSpeed175, this->actionSpeed200, this->actionSpeed225,
+        this->actionSpeed250, this->actionSpeed275, this->actionSpeed300
     };
-    int currentSlot = CoreGetSaveStateSlot();
+    int speedActionNumbers[] =
+    {
+        25, 50, 75, 100, 
+        125, 150, 175, 200,
+        225, 250, 275, 300
+    };
+    int currentSpeedFactor = CoreGetSpeedFactor();
+    for (int i = 0; i < 12; i++)
+    {
+        QAction* speedAction = speedActions[i];
+
+        speedAction->setCheckable(true);
+        speedAction->setChecked(currentSpeedFactor == speedActionNumbers[i]);
+        speedAction->setActionGroup(speedActionGroup);
+
+        // connect emulation speed action here because we need to do
+        // something special for them
+        connect(speedAction, &QAction::triggered, [=](bool checked)
+        {
+            if (checked)
+            {
+                int factor = speedAction->text().split("%").first().toInt();
+                this->on_Action_System_SpeedFactor(factor);
+            }
+        });
+    }
+
+    // configure save slot actions
+    QActionGroup* slotActionGroup = new QActionGroup(this);
     for (int i = 0; i < 10; i++)
     {
-        QAction* slotAction = slotActions[i];
+        QAction* slotAction = this->ui_SlotActions[i];
 
         slotAction->setCheckable(true);
-        slotAction->setChecked(i == currentSlot);
+        slotAction->setChecked(i == 0);
         slotAction->setActionGroup(slotActionGroup);
 
         // connect slot action here because we need to do
@@ -596,7 +888,7 @@ void MainWindow::configureActions(void)
         {
             if (checked)
             {
-                int slot = slotAction->text().split(" ").last().toInt();
+                int slot = slotAction->text().split(" ").at(1).toInt();
                 this->on_Action_System_CurrentSaveState(slot);
             }
         });
@@ -638,7 +930,7 @@ void MainWindow::connectActionSignals(void)
     connect(this->action_System_HardReset, &QAction::triggered, this, &MainWindow::on_Action_System_HardReset);
     connect(this->action_System_Pause, &QAction::triggered, this, &MainWindow::on_Action_System_Pause);
     connect(this->action_System_Screenshot, &QAction::triggered, this,
-            &MainWindow::on_Action_System_GenerateBitmap);
+            &MainWindow::on_Action_System_Screenshot);
     connect(this->action_System_LimitFPS, &QAction::triggered, this, &MainWindow::on_Action_System_LimitFPS);
     connect(this->action_System_SaveState, &QAction::triggered, this, &MainWindow::on_Action_System_SaveState);
     connect(this->action_System_SaveAs, &QAction::triggered, this, &MainWindow::on_Action_System_SaveAs);
@@ -666,16 +958,44 @@ void MainWindow::connectActionSignals(void)
 
     connect(this->action_Help_Github, &QAction::triggered, this, &MainWindow::on_Action_Help_Github);
     connect(this->action_Help_About, &QAction::triggered, this, &MainWindow::on_Action_Help_About);
+    connect(this->action_Help_Update, &QAction::triggered, this, &MainWindow::on_Action_Help_Update);
 }
 
 #ifdef UPDATER
-void MainWindow::checkForUpdates(void)
+void MainWindow::checkForUpdates(bool silent, bool force)
 {
-    if (!CoreSettingsGetBoolValue(SettingsID::GUI_CheckForUpdates))
+    if (!force && !CoreSettingsGetBoolValue(SettingsID::GUI_CheckForUpdates))
     {
         return;
     }
 
+    // only check for updates on the stable versions unless forced
+    QString currentVersion = QString::fromStdString(CoreGetVersion());
+    if (!force && currentVersion.size() != 6)
+    {
+        return;
+    }
+
+    QString dateTimeFormat = "dd-MM-yyyy_hh:mm";
+    QString lastUpdateCheckDateTimeString = QString::fromStdString(CoreSettingsGetStringValue(SettingsID::GUI_LastUpdateCheck));
+    QDateTime lastUpdateCheckDateTime = QDateTime::fromString(lastUpdateCheckDateTimeString, dateTimeFormat);
+    QDateTime currentDateTime = QDateTime::currentDateTime();
+
+    // only check for updates once every hour unless forced
+    if (!force &&
+        lastUpdateCheckDateTime.isValid() &&
+        lastUpdateCheckDateTime.addSecs(3600) > currentDateTime)
+    {
+        return;
+    }
+
+    // update last update check date & time
+    CoreSettingsSetValue(SettingsID::GUI_LastUpdateCheck, currentDateTime.toString(dateTimeFormat).toStdString());
+
+    // whether or not the update check is silent
+    this->ui_SilentUpdateCheck = silent;
+
+    // execute update check
     QNetworkAccessManager* networkAccessManager = new QNetworkAccessManager(this);
     connect(networkAccessManager, &QNetworkAccessManager::finished, this, &MainWindow::on_networkAccessManager_Finished);
     networkAccessManager->get(QNetworkRequest(QUrl("https://api.github.com/repos/Rosalie241/RMG/releases/latest")));
@@ -720,6 +1040,13 @@ void MainWindow::timerEvent(QTimerEvent *event)
             this->ui_GamesharkButtonTimerId = 0;
         }
     }
+    else if (timerId == this->ui_UpdateSaveStateSlotTimerId)
+    {
+        this->updateSaveStateSlotActions(CoreIsEmulationRunning(), false);
+        this->killTimer(timerId);
+        this->ui_UpdateSaveStateSlotTimerId = 0;
+    }
+
 }
 
 void MainWindow::on_EventFilter_KeyPressed(QKeyEvent *event)
@@ -787,6 +1114,10 @@ void MainWindow::on_networkAccessManager_Finished(QNetworkReply* reply)
 {
     if (reply->error())
     {
+        if (!this->ui_SilentUpdateCheck)
+        {
+            this->showErrorMessage("Failed to check for updates!", reply->errorString());
+        }
         reply->deleteLater();
         return;
     }
@@ -799,22 +1130,19 @@ void MainWindow::on_networkAccessManager_Finished(QNetworkReply* reply)
 
     reply->deleteLater();
 
-    // make sure the current version is valid
-    // and not a dev version
-    if (currentVersion.size() != 6)
-    {
-        return;
-    }
-
     // do nothing when versions match
     if (currentVersion == latestVersion)
     {
+        if (!this->ui_SilentUpdateCheck)
+        {
+            this->showErrorMessage("You're already on the latest version!");
+        }
         return;
     }
 
     int ret = 0;
 
-    Dialog::UpdateDialog updateDialog(this, jsonObject);
+    Dialog::UpdateDialog updateDialog(this, jsonObject, !this->ui_SilentUpdateCheck);
     ret = updateDialog.exec();
     if (ret != QDialog::Accepted)
     {
@@ -828,12 +1156,16 @@ void MainWindow::on_networkAccessManager_Finished(QNetworkReply* reply)
         return;
     }
 
+#ifdef APPIMAGE_UPDATER
+    this->on_Action_System_Exit();
+#else // normal updater
     Dialog::InstallUpdateDialog installUpdateDialog(this, QCoreApplication::applicationDirPath(), downloadUpdateDialog.GetTempDirectory(), downloadUpdateDialog.GetFileName());
     ret = installUpdateDialog.exec();
     if (ret != QDialog::Accepted)
     {
         return;
     }
+#endif // APPIMAGE_UPDATER
 }
 #endif // UPDATER
 
@@ -849,7 +1181,7 @@ void MainWindow::on_Action_System_OpenRom(void)
 
     QString romFile;
 
-    romFile = QFileDialog::getOpenFileName(this, "", "", "N64 ROMs & Disks (*.n64 *.z64 *.v64 *.ndd *.d64 *.zip)");
+    romFile = QFileDialog::getOpenFileName(this, "", "", "N64 ROMs & Disks (*.n64 *.z64 *.v64 *.ndd *.d64 *.zip *.7z)");
 
     if (romFile.isEmpty())
     {
@@ -880,7 +1212,7 @@ void MainWindow::on_Action_System_OpenCombo(void)
 
     QString cartRom, diskRom;
 
-    cartRom = QFileDialog::getOpenFileName(this, "", "", "N64 ROMs (*.n64 *.z64 *.v64 *.zip)");
+    cartRom = QFileDialog::getOpenFileName(this, "", "", "N64 ROMs (*.n64 *.z64 *.v64 *.zip *.7z)");
     
     if (cartRom.isEmpty())
     {
@@ -949,9 +1281,9 @@ void MainWindow::on_Action_System_HardReset(void)
         this->showErrorMessage("CoreResetEmulation() Failed!", QString::fromStdString(CoreGetError()));
     }
 }
-
 void MainWindow::on_Action_System_Pause(void)
 {
+    bool isRunning = CoreIsEmulationRunning();
     bool isPaused = CoreIsEmulationPaused();
 
     bool ret;
@@ -959,11 +1291,19 @@ void MainWindow::on_Action_System_Pause(void)
 
     if (!isPaused)
     {
+        if (isRunning)
+        {
+            OnScreenDisplayPause();
+        }
         ret = CorePauseEmulation();
         error = "CorePauseEmulation() Failed!";
     }
     else
     {
+        if (isPaused)
+        {
+            OnScreenDisplayResume();
+        }
         ret = CoreResumeEmulation();
         error = "CoreResumeEmulation() Failed!";
     }
@@ -977,11 +1317,15 @@ void MainWindow::on_Action_System_Pause(void)
     this->ui_ManuallyPaused = true;
 }
 
-void MainWindow::on_Action_System_GenerateBitmap(void)
+void MainWindow::on_Action_System_Screenshot(void)
 {
     if (!CoreTakeScreenshot())
     {
         this->showErrorMessage("CoreTakeScreenshot() Failed!", QString::fromStdString(CoreGetError()));
+    }
+    else
+    {
+        OnScreenDisplaySetMessage("Captured screenshot.");
     }
 }
 
@@ -999,11 +1343,36 @@ void MainWindow::on_Action_System_LimitFPS(void)
     }
 }
 
+void MainWindow::on_Action_System_SpeedFactor(int factor)
+{
+    if (!CoreSetSpeedFactor(factor))
+    {
+        this->showErrorMessage("CoreSetSpeedFactor() Failed!", QString::fromStdString(CoreGetError()));
+    }
+    else
+    {
+        OnScreenDisplaySetMessage("Playback speed: " + std::to_string(CoreGetSpeedFactor()) + "%");
+    }
+}
+
 void MainWindow::on_Action_System_SaveState(void)
 {
     if (!CoreSaveState())
     {
         this->showErrorMessage("CoreSaveState() Failed", QString::fromStdString(CoreGetError()));
+    }
+    else
+    {
+        OnScreenDisplaySetMessage("Saved state to slot: " + std::to_string(CoreGetSaveStateSlot()));
+
+        // refresh savestate slot times in 1 second,
+        // kill any existing timers
+        if (this->ui_UpdateSaveStateSlotTimerId != 0)
+        {
+            this->killTimer(this->ui_UpdateSaveStateSlotTimerId);
+            this->ui_UpdateSaveStateSlotTimerId = 0;
+        }
+        this->ui_UpdateSaveStateSlotTimerId = this->startTimer(1000);
     }
 }
 
@@ -1025,6 +1394,10 @@ void MainWindow::on_Action_System_SaveAs(void)
         {
             this->showErrorMessage("CoreSaveState() Failed", QString::fromStdString(CoreGetError()));
         }
+        else
+        {
+            OnScreenDisplaySetMessage("Saved state to: " + fileName.toStdString());
+        }
     }
 
     if (isRunning && !isPaused)
@@ -1038,6 +1411,10 @@ void MainWindow::on_Action_System_LoadState(void)
     if (!CoreLoadSaveState())
     {
         this->showErrorMessage("CoreLoadSaveState() Failed", QString::fromStdString(CoreGetError()));
+    }
+    else
+    {
+        OnScreenDisplaySetMessage("State loaded from slot: " + std::to_string(CoreGetSaveStateSlot()));
     }
 }
 
@@ -1060,6 +1437,10 @@ void MainWindow::on_Action_System_Load(void)
         {
             this->showErrorMessage("CoreLoadSaveState() Failed", QString::fromStdString(CoreGetError()));
         }
+        else
+        {
+            OnScreenDisplaySetMessage("State loaded from: " + fileName.toStdString());
+        }
     }
 
     if (isRunning && !isPaused)
@@ -1070,9 +1451,36 @@ void MainWindow::on_Action_System_Load(void)
 
 void MainWindow::on_Action_System_CurrentSaveState(int slot)
 {
+    QAction* slotAction;
+    QString dateTimeText;
+    std::string message;
+
     if (!CoreSetSaveStateSlot(slot))
     {
         this->showErrorMessage("CoreSetSaveStateSlot() Failed", QString::fromStdString(CoreGetError()));
+    }
+    else
+    {
+        slotAction = this->ui_SlotActions[slot];
+        dateTimeText = this->getSaveStateSlotDateTimeText(slotAction);
+
+        // construct OSD message
+        message = "Selected save slot: " + std::to_string(slot);
+
+        // add date and time when available
+        if (!dateTimeText.isEmpty())
+        {
+            message += " [";
+            message += dateTimeText.toStdString();
+            message += "]";
+        }
+        else
+        {
+            message += " [N/A]";
+        }
+
+        // display message
+        OnScreenDisplaySetMessage(message);
     }
 }
 
@@ -1160,6 +1568,11 @@ void MainWindow::on_Action_Settings_Settings(void)
 
 void MainWindow::on_Action_View_Toolbar(bool checked)
 {
+    if (!this->ui_ShowUI)
+    {
+        return;
+    }
+
     CoreSettingsSetValue(SettingsID::GUI_Toolbar, checked);
     this->toolBar->setVisible(checked);
     this->ui_ShowToolbar = checked;
@@ -1167,6 +1580,11 @@ void MainWindow::on_Action_View_Toolbar(bool checked)
 
 void MainWindow::on_Action_View_StatusBar(bool checked)
 {
+    if (!this->ui_ShowUI)
+    {
+        return;
+    }
+
     CoreSettingsSetValue(SettingsID::GUI_StatusBar, checked);
     this->statusBar()->setVisible(checked);
     this->ui_ShowStatusbar = checked;
@@ -1236,6 +1654,13 @@ void MainWindow::on_Action_Help_About(void)
     dialog.exec();
 }
 
+void MainWindow::on_Action_Help_Update(void)
+{
+#ifdef UPDATER
+    this->checkForUpdates(false, true);
+#endif // UPDATER
+}
+
 void MainWindow::on_Emulation_Started(void)
 {
     this->logDialog.Clear();
@@ -1245,7 +1670,6 @@ void MainWindow::on_Emulation_Finished(bool ret)
 {
     if (!ret)
     {
-        this->showErrorMessage("EmulationThread::run Failed", this->emulationThread->GetLastError());
         // whatever we do on failure,
         // always return to the rombrowser
         this->ui_NoSwitchToRomBrowser = false;
@@ -1271,6 +1695,13 @@ void MainWindow::on_Emulation_Finished(bool ret)
 
     // always refresh UI
     this->updateUI(false, false);
+
+    // show error message to the user
+    // after switching back to the ROM browser
+    if (!ret)
+    {
+        this->showErrorMessage("EmulationThread::run Failed", this->emulationThread->GetLastError());
+    }
 }
 
 void MainWindow::on_RomBrowser_PlayGame(QString file)
@@ -1290,7 +1721,7 @@ void MainWindow::on_RomBrowser_PlayGameWith(CoreRomType type, QString file)
     }
     else
     { // disk
-        mainRom = QFileDialog::getOpenFileName(this, "", "", "N64 ROMs (*.n64 *.z64 *.v64 *.zip)");
+        mainRom = QFileDialog::getOpenFileName(this, "", "", "N64 ROMs (*.n64 *.z64 *.v64 *.zip *.7z)");
         otherRom = file;
     }
 
@@ -1393,6 +1824,34 @@ void MainWindow::on_RomBrowser_EditGameSettings(QString file)
     }
 }
 
+void MainWindow::on_RomBrowser_EditGameInputSettings(QString file)
+{
+    bool isRefreshingRomList = this->ui_Widget_RomBrowser->IsRefreshingRomList();
+    if (isRefreshingRomList)
+    {
+        this->ui_Widget_RomBrowser->StopRefreshRomList();
+    }
+
+    if (!CoreOpenRom(file.toStdU32String()))
+    {
+        this->showErrorMessage("CoreOpenRom() Failed", QString::fromStdString(CoreGetError()));
+        return;
+    }
+
+    CorePluginsOpenROMConfig(CorePluginType::Input);
+
+    if (!CoreCloseRom())
+    {
+        this->showErrorMessage("CoreCloseRom() Failed", QString::fromStdString(CoreGetError()));
+        return;
+    }
+
+    if (isRefreshingRomList)
+    {
+        this->ui_Widget_RomBrowser->RefreshRomList();
+    }
+}
+
 void MainWindow::on_RomBrowser_Cheats(QString file)
 {
     bool isRefreshingRomList = this->ui_Widget_RomBrowser->IsRefreshingRomList();
@@ -1447,7 +1906,7 @@ void MainWindow::on_VidExt_SetWindowedMode(int width, int height, int bps, int f
         this->showNormal();
     }
 
-    if (this->menuBar()->isHidden())
+    if (this->ui_ShowMenubar && this->menuBar()->isHidden())
     {
         this->menuBar()->show();
     }
@@ -1467,7 +1926,10 @@ void MainWindow::on_VidExt_SetWindowedMode(int width, int height, int bps, int f
         this->ui_Widget_OpenGL->SetHideCursor(false);
     }
 
-    this->removeFullscreenActions();
+    if (this->ui_ShowUI)
+    {
+        this->removeActions();
+    }
 
     // only resize window when we're
     // not returning from fullscreen
@@ -1504,15 +1966,20 @@ void MainWindow::on_VidExt_SetFullscreenMode(int width, int height, int bps, int
         this->ui_Widget_OpenGL->SetHideCursor(true);
     }
 
-    this->addFullscreenActions();
+    if (this->ui_ShowUI)
+    {
+        this->addActions();
+    }
 }
 
 void MainWindow::on_VidExt_ResizeWindow(int width, int height)
 {
     // account for HiDPI scaling
-    // see https://github.com/Rosalie241/RMG/issues/2
-    height /= this->devicePixelRatioF();
-    width /= this->devicePixelRatioF();
+    if (this->devicePixelRatio() != 1)
+    {
+        width  = (int)std::ceil((double)((double)width  / this->devicePixelRatio()));
+        height = (int)std::ceil((double)((double)height / this->devicePixelRatio()));
+    }
 
     if (!this->menuBar()->isHidden())
     {
@@ -1521,7 +1988,24 @@ void MainWindow::on_VidExt_ResizeWindow(int width, int height)
 
     if (!this->toolBar->isHidden())
     {
-        height += this->toolBar->height();
+        Qt::ToolBarArea area = this->toolBarArea(this->toolBar);
+
+        // dont resize when toolbar is floating
+        if (this->toolBar->isFloating())
+        {
+            return;
+        }
+
+        if (area == Qt::ToolBarArea::TopToolBarArea ||
+            area == Qt::ToolBarArea::BottomToolBarArea)
+        {
+            height += this->toolBar->height();
+        }
+        else if (area == Qt::ToolBarArea::LeftToolBarArea ||
+                 area == Qt::ToolBarArea::RightToolBarArea)
+        {
+            width += this->toolBar->width();
+        }
     }
 
     if (!this->statusBar()->isHidden())
@@ -1542,14 +2026,7 @@ void MainWindow::on_VidExt_ResizeWindow(int width, int height)
         this->showNormal();
     }
 
-    if (this->ui_AllowManualResizing)
-    {
-        this->resize(width, height);
-    }
-    else
-    {
-        this->setFixedSize(width, height);
-    }
+    this->resize(width, height);
 
     // we've force set the size once,
     // we can safely disable it now
@@ -1565,7 +2042,7 @@ void MainWindow::on_VidExt_ToggleFS(bool fullscreen)
             this->showFullScreen();
         }
 
-        if (!this->menuBar()->isHidden())
+        if (this->ui_ShowMenubar && !this->menuBar()->isHidden())
         {
             this->menuBar()->hide();
         }
@@ -1585,7 +2062,10 @@ void MainWindow::on_VidExt_ToggleFS(bool fullscreen)
             this->ui_Widget_OpenGL->SetHideCursor(true);
         }
 
-        this->addFullscreenActions();
+        if (this->ui_ShowUI)
+        {
+            this->addActions();
+        }
     }
     else
     {
@@ -1594,11 +2074,11 @@ void MainWindow::on_VidExt_ToggleFS(bool fullscreen)
             this->showNormal();
         }
 
-        if (this->menuBar()->isHidden())
+        if (this->ui_ShowMenubar && this->menuBar()->isHidden())
         {
             this->menuBar()->show();
         }
-        
+
         if (this->ui_ShowToolbar && this->toolBar->isHidden())
         {
             this->toolBar->show();
@@ -1614,7 +2094,10 @@ void MainWindow::on_VidExt_ToggleFS(bool fullscreen)
             this->ui_Widget_OpenGL->SetHideCursor(false);
         }
 
-        this->removeFullscreenActions();
+        if (this->ui_ShowUI)
+        {
+            this->removeActions();
+        }
     }
 }
 
@@ -1662,4 +2145,22 @@ void MainWindow::on_Core_DebugCallback(CoreDebugMessageType type, QString contex
         this->killTimer(this->ui_TimerId);
     }
     this->ui_TimerId = this->startTimer(this->ui_TimerTimeout * 1000);
+}
+
+void MainWindow::on_Core_StateCallback(CoreStateCallbackType type, int value)
+{
+    if (type == CoreStateCallbackType::SaveStateLoaded)
+    {
+        if (value == 0)
+        {
+            OnScreenDisplaySetMessage("Failed to load save state.");
+        }
+    }
+    else if (type == CoreStateCallbackType::SaveStateSaved)
+    {
+        if (value == 0)
+        {
+            OnScreenDisplaySetMessage("Failed to save state.");
+        }
+    }
 }

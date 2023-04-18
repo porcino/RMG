@@ -43,10 +43,12 @@ private:
     bool updatingDeviceList = false;
 
     QList<Widget::ControllerWidget*> controllerWidgets;
-    SDL_Joystick* currentJoystick = nullptr;
+    SDL_Joystick* currentJoystick         = nullptr;
     SDL_GameController* currentController = nullptr;
     QString currentDeviceName;
     int currentDeviceNum = 0;
+
+    int previousTabWidgetIndex = 0;
 
     EventFilter* eventFilter;
 
@@ -57,7 +59,7 @@ private:
     void closeInputDevice();
 
 public:
-    MainDialog(QWidget *parent, Thread::SDLThread*);
+    MainDialog(QWidget *parent, Thread::SDLThread*, bool);
     ~MainDialog(void);
 
 public slots:
@@ -65,7 +67,10 @@ public slots:
 
     void on_ControllerWidget_CurrentInputDeviceChanged(ControllerWidget*, QString, int);
     void on_ControllerWidget_RefreshInputDevicesButtonClicked();
-   
+
+    void on_ControllerWidget_UserProfileAdded(QString, QString);
+    void on_ControllerWidget_UserProfileRemoved(QString, QString);
+
     void on_tabWidget_currentChanged(int);
 
     void on_SDLThread_DeviceFound(QString, int);
@@ -75,7 +80,8 @@ private slots:
     void on_EventFilter_KeyPressed(QKeyEvent *);
     void on_EventFilter_KeyReleased(QKeyEvent *);
 
-    void on_buttonBox_clicked(QAbstractButton *);
+    void accept(void) Q_DECL_OVERRIDE;
+    void reject(void) Q_DECL_OVERRIDE;
 };
 }
 

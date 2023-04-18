@@ -21,7 +21,7 @@
 #include <QApplication>
 #include <SDL.h>
 
-#include <iostream>
+#include <algorithm>
 #include <chrono>
 
 //
@@ -49,15 +49,18 @@
 
 struct InputMapping
 {
-    InputType Type = InputType::Invalid;
-    int Data       = 0;
-    int ExtraData  = 0;
+    std::vector<std::string> Name;
+    std::vector<int>         Type;
+    std::vector<int>         Data;
+    std::vector<int>         ExtraData;
+    int                      Count = 0;
 };
 
 struct InputProfile
 {
     bool PluggedIn    = false;
     int DeadzoneValue = 0;
+    int SensitivityValue = 100;
 
     N64ControllerPak ControllerPak = N64ControllerPak::None;
 
@@ -120,11 +123,27 @@ static bool l_KeyboardState[SDL_NUM_SCANCODES];
 //
 
 static void load_inputmapping_settings(InputMapping* mapping, std::string section,
-    SettingsID inputTypeSettingsId, SettingsID dataSettingsId, SettingsID extraDataSettingsId)
+    SettingsID inputNameSettingsId, SettingsID inputTypeSettingsId, 
+    SettingsID dataSettingsId, SettingsID extraDataSettingsId)
 {
-    mapping->Type = (InputType)CoreSettingsGetIntValue(inputTypeSettingsId, section);
-    mapping->Data = CoreSettingsGetIntValue(dataSettingsId, section);
-    mapping->ExtraData = CoreSettingsGetIntValue(extraDataSettingsId, section);
+    mapping->Name = CoreSettingsGetStringListValue(inputNameSettingsId, section);
+    mapping->Type = CoreSettingsGetIntListValue(inputTypeSettingsId, section);
+    mapping->Data = CoreSettingsGetIntListValue(dataSettingsId, section);
+    mapping->ExtraData = CoreSettingsGetIntListValue(extraDataSettingsId, section);
+    mapping->Count = std::min(mapping->Type.size(), std::min(mapping->Data.size(), mapping->ExtraData.size()));
+
+    // check if mapping is old profile type,
+    // it should be true when the minimum of the lengths
+    // of all int lists is 0, and the name isn't empty or whitespace
+    if (mapping->Count == 0 &&
+        !mapping->Name.empty() && !mapping->Name.at(0).empty() &&
+        mapping->Name.at(0).find_first_not_of(' ') != std::string::npos)
+    {
+        mapping->Type.push_back(CoreSettingsGetIntValue(inputTypeSettingsId, section));
+        mapping->Data.push_back(CoreSettingsGetIntValue(dataSettingsId, section));
+        mapping->ExtraData.push_back(CoreSettingsGetIntValue(extraDataSettingsId, section));
+        mapping->Count = 1;
+    }
 }
 
 static void load_settings(void)
@@ -132,26 +151,60 @@ static void load_settings(void)
     std::string gameId;
     CoreRomSettings romSettings;
 
+    std::string userProfileSectionBase = "Rosalie's Mupen GUI - Input Plugin User Profile";
+    std::vector<std::string> userProfiles;
+    std::vector<std::string>::iterator userProfilesIter;
+
     // try to retrieve current ROM settings
     if (CoreGetCurrentRomSettings(romSettings))
     {
         gameId = romSettings.MD5;
     }
 
+    // retrieve all user profiles
+    userProfiles = CoreSettingsGetStringListValue(SettingsID::Input_Profiles);
+
     for (int i = 0; i < NUM_CONTROLLERS; i++)
     {
         InputProfile* profile = &l_InputProfiles[i];
-        std::string section = "Rosalie's Mupen GUI - Input Plugin Profile " + std::to_string(i);
+        std::string section     = "Rosalie's Mupen GUI - Input Plugin Profile " + std::to_string(i);
         std::string gameSection = section + " Game " + gameId;
+        std::string userProfileSection;
+        std::string userProfileName;
+
+        // when a user profile has been specified,
+        // ensure it exists in the profile list and
+        // in the settings, if it does,
+        // use that user profile
+        userProfileName = CoreSettingsGetStringValue(SettingsID::Input_UseProfile, section);
+        if (!userProfileName.empty())
+        {
+            userProfilesIter = std::find(userProfiles.begin(), userProfiles.end(), userProfileName);
+            if (userProfilesIter != userProfiles.end())
+            {
+                userProfileSection = userProfileSectionBase;
+                userProfileSection += " \"" + userProfileName + "\"";
+                if (CoreSettingsSectionExists(userProfileSection))
+                {
+                    section = userProfileSection;
+                }
+            }
+        }
 
         // if game ID was retrieved,
-        // check if game section exists, if it does
-        // use that section instead of the main section
+        // check if game section exists,
+        // if it does, check if the 'UseGameProfile' key exists,
+        // if it doesn't then use the profile, else
+        // check if the value is true
         if (!gameId.empty())
         {
             if (CoreSettingsSectionExists(gameSection))
             {
-                section = gameSection;
+                if (!CoreSettingsKeyExists(gameSection, "UseGameProfile") ||
+                    CoreSettingsGetBoolValue(SettingsID::Input_UseGameProfile, gameSection))
+                {
+                    section = gameSection;
+                }
             }
         }
 
@@ -171,25 +224,35 @@ static void load_settings(void)
         profile->GameboyRom = CoreSettingsGetStringValue(SettingsID::Input_GameboyRom, section);
         profile->GameboySave = CoreSettingsGetStringValue(SettingsID::Input_GameboySave, section);
 
+        // keep compatibility with profiles before version v0.3.9
+        if (CoreSettingsKeyExists(section, "Sensitivity"))
+        {
+            profile->SensitivityValue = CoreSettingsGetIntValue(SettingsID::Input_Sensitivity, section);
+        }
+        else
+        {
+            profile->SensitivityValue = 100;
+        }
+
         // load inputmapping settings
-        load_inputmapping_settings(&profile->Button_A, section, SettingsID::Input_A_InputType, SettingsID::Input_A_Data, SettingsID::Input_A_ExtraData);
-        load_inputmapping_settings(&profile->Button_B, section, SettingsID::Input_B_InputType, SettingsID::Input_B_Data, SettingsID::Input_B_ExtraData);
-        load_inputmapping_settings(&profile->Button_Start, section, SettingsID::Input_Start_InputType, SettingsID::Input_Start_Data, SettingsID::Input_Start_ExtraData);
-        load_inputmapping_settings(&profile->Button_DpadUp, section, SettingsID::Input_DpadUp_InputType, SettingsID::Input_DpadUp_Data, SettingsID::Input_DpadUp_ExtraData);
-        load_inputmapping_settings(&profile->Button_DpadDown, section, SettingsID::Input_DpadDown_InputType, SettingsID::Input_DpadDown_Data, SettingsID::Input_DpadDown_ExtraData);
-        load_inputmapping_settings(&profile->Button_DpadLeft, section, SettingsID::Input_DpadLeft_InputType, SettingsID::Input_DpadLeft_Data, SettingsID::Input_DpadLeft_ExtraData);
-        load_inputmapping_settings(&profile->Button_DpadRight, section, SettingsID::Input_DpadRight_InputType, SettingsID::Input_DpadRight_Data, SettingsID::Input_DpadRight_ExtraData);
-        load_inputmapping_settings(&profile->Button_CButtonUp, section, SettingsID::Input_CButtonUp_InputType, SettingsID::Input_CButtonUp_Data, SettingsID::Input_CButtonUp_ExtraData);
-        load_inputmapping_settings(&profile->Button_CButtonDown, section, SettingsID::Input_CButtonDown_InputType, SettingsID::Input_CButtonDown_Data, SettingsID::Input_CButtonDown_ExtraData);
-        load_inputmapping_settings(&profile->Button_CButtonLeft, section, SettingsID::Input_CButtonLeft_InputType, SettingsID::Input_CButtonLeft_Data, SettingsID::Input_CButtonLeft_ExtraData);
-        load_inputmapping_settings(&profile->Button_CButtonRight, section, SettingsID::Input_CButtonRight_InputType, SettingsID::Input_CButtonRight_Data, SettingsID::Input_CButtonRight_ExtraData);
-        load_inputmapping_settings(&profile->Button_LeftTrigger, section, SettingsID::Input_LeftTrigger_InputType, SettingsID::Input_LeftTrigger_Data, SettingsID::Input_LeftTrigger_ExtraData);
-        load_inputmapping_settings(&profile->Button_RightTrigger, section, SettingsID::Input_RightTrigger_InputType, SettingsID::Input_RightTrigger_Data, SettingsID::Input_RightTrigger_ExtraData);
-        load_inputmapping_settings(&profile->Button_ZTrigger, section, SettingsID::Input_ZTrigger_InputType, SettingsID::Input_ZTrigger_Data, SettingsID::Input_ZTrigger_ExtraData);
-        load_inputmapping_settings(&profile->AnalogStick_Up, section, SettingsID::Input_AnalogStickUp_InputType, SettingsID::Input_AnalogStickUp_Data, SettingsID::Input_AnalogStickUp_ExtraData);
-        load_inputmapping_settings(&profile->AnalogStick_Down, section, SettingsID::Input_AnalogStickDown_InputType, SettingsID::Input_AnalogStickDown_Data, SettingsID::Input_AnalogStickDown_ExtraData);
-        load_inputmapping_settings(&profile->AnalogStick_Left, section, SettingsID::Input_AnalogStickLeft_InputType, SettingsID::Input_AnalogStickLeft_Data, SettingsID::Input_AnalogStickLeft_ExtraData);
-        load_inputmapping_settings(&profile->AnalogStick_Right, section, SettingsID::Input_AnalogStickRight_InputType, SettingsID::Input_AnalogStickRight_Data, SettingsID::Input_AnalogStickRight_ExtraData);
+        load_inputmapping_settings(&profile->Button_A, section, SettingsID::Input_A_Name, SettingsID::Input_A_InputType, SettingsID::Input_A_Data, SettingsID::Input_A_ExtraData);
+        load_inputmapping_settings(&profile->Button_B, section, SettingsID::Input_B_Name, SettingsID::Input_B_InputType, SettingsID::Input_B_Data, SettingsID::Input_B_ExtraData);
+        load_inputmapping_settings(&profile->Button_Start, section, SettingsID::Input_Start_Name, SettingsID::Input_Start_InputType, SettingsID::Input_Start_Data, SettingsID::Input_Start_ExtraData);
+        load_inputmapping_settings(&profile->Button_DpadUp, section, SettingsID::Input_DpadUp_Name, SettingsID::Input_DpadUp_InputType, SettingsID::Input_DpadUp_Data, SettingsID::Input_DpadUp_ExtraData);
+        load_inputmapping_settings(&profile->Button_DpadDown, section, SettingsID::Input_DpadDown_Name, SettingsID::Input_DpadDown_InputType, SettingsID::Input_DpadDown_Data, SettingsID::Input_DpadDown_ExtraData);
+        load_inputmapping_settings(&profile->Button_DpadLeft, section, SettingsID::Input_DpadLeft_Name, SettingsID::Input_DpadLeft_InputType, SettingsID::Input_DpadLeft_Data, SettingsID::Input_DpadLeft_ExtraData);
+        load_inputmapping_settings(&profile->Button_DpadRight, section, SettingsID::Input_DpadRight_Name, SettingsID::Input_DpadRight_InputType, SettingsID::Input_DpadRight_Data, SettingsID::Input_DpadRight_ExtraData);
+        load_inputmapping_settings(&profile->Button_CButtonUp, section, SettingsID::Input_CButtonUp_Name, SettingsID::Input_CButtonUp_InputType, SettingsID::Input_CButtonUp_Data, SettingsID::Input_CButtonUp_ExtraData);
+        load_inputmapping_settings(&profile->Button_CButtonDown, section, SettingsID::Input_CButtonDown_Name, SettingsID::Input_CButtonDown_InputType, SettingsID::Input_CButtonDown_Data, SettingsID::Input_CButtonDown_ExtraData);
+        load_inputmapping_settings(&profile->Button_CButtonLeft, section, SettingsID::Input_CButtonLeft_Name, SettingsID::Input_CButtonLeft_InputType, SettingsID::Input_CButtonLeft_Data, SettingsID::Input_CButtonLeft_ExtraData);
+        load_inputmapping_settings(&profile->Button_CButtonRight, section, SettingsID::Input_CButtonRight_Name, SettingsID::Input_CButtonRight_InputType, SettingsID::Input_CButtonRight_Data, SettingsID::Input_CButtonRight_ExtraData);
+        load_inputmapping_settings(&profile->Button_LeftTrigger, section, SettingsID::Input_LeftTrigger_Name, SettingsID::Input_LeftTrigger_InputType, SettingsID::Input_LeftTrigger_Data, SettingsID::Input_LeftTrigger_ExtraData);
+        load_inputmapping_settings(&profile->Button_RightTrigger, section, SettingsID::Input_RightTrigger_Name, SettingsID::Input_RightTrigger_InputType, SettingsID::Input_RightTrigger_Data, SettingsID::Input_RightTrigger_ExtraData);
+        load_inputmapping_settings(&profile->Button_ZTrigger, section, SettingsID::Input_ZTrigger_Name, SettingsID::Input_ZTrigger_InputType, SettingsID::Input_ZTrigger_Data, SettingsID::Input_ZTrigger_ExtraData);
+        load_inputmapping_settings(&profile->AnalogStick_Up, section, SettingsID::Input_AnalogStickUp_Name, SettingsID::Input_AnalogStickUp_InputType, SettingsID::Input_AnalogStickUp_Data, SettingsID::Input_AnalogStickUp_ExtraData);
+        load_inputmapping_settings(&profile->AnalogStick_Down, section, SettingsID::Input_AnalogStickDown_Name, SettingsID::Input_AnalogStickDown_InputType, SettingsID::Input_AnalogStickDown_Data, SettingsID::Input_AnalogStickDown_ExtraData);
+        load_inputmapping_settings(&profile->AnalogStick_Left, section, SettingsID::Input_AnalogStickLeft_Name, SettingsID::Input_AnalogStickLeft_InputType, SettingsID::Input_AnalogStickLeft_Data, SettingsID::Input_AnalogStickLeft_ExtraData);
+        load_inputmapping_settings(&profile->AnalogStick_Right, section, SettingsID::Input_AnalogStickRight_Name, SettingsID::Input_AnalogStickRight_InputType, SettingsID::Input_AnalogStickRight_Data, SettingsID::Input_AnalogStickRight_ExtraData);
     }
 }
 
@@ -259,15 +322,90 @@ static void apply_gameboy_settings(void)
     CoreSettingsSave();
 }
 
+static void setup_device_automatic(int num, InputProfile* profile)
+{
+    static int previousSdlDeviceNum = -1;
+
+    // reset variable when needed
+    if (num == 0)
+    {
+        previousSdlDeviceNum = -1;
+    }
+
+    bool foundSdlDevice                   = false;
+    SDL_GameController* sdlGameController = nullptr;
+    SDL_Joystick* sdlJoystick             = nullptr;
+    std::string sdlDeviceName;
+
+    for (int i = (previousSdlDeviceNum + 1); i < SDL_NumJoysticks(); i++)
+    {
+        if (SDL_IsGameController(i))
+        {
+            sdlGameController = SDL_GameControllerOpen(i);
+            if (sdlGameController != nullptr)
+            {
+                sdlDeviceName = SDL_GameControllerName(sdlGameController);
+                SDL_GameControllerClose(sdlGameController);
+                profile->DeviceNum   = i;
+                profile->DeviceName  = sdlDeviceName;
+                previousSdlDeviceNum = i;
+                foundSdlDevice       = true; 
+                break;
+            }
+        }
+        else
+        {
+            sdlJoystick = SDL_JoystickOpen(i);
+            if (sdlJoystick != nullptr)
+            {
+                sdlDeviceName = SDL_JoystickName(sdlJoystick);
+                SDL_JoystickClose(sdlJoystick);
+                profile->DeviceNum   = i;
+                profile->DeviceName  = sdlDeviceName;
+                previousSdlDeviceNum = i;
+                foundSdlDevice       = true; 
+                break;
+            }
+        }
+    }
+
+    if (!foundSdlDevice)
+    { // fallback to keyboard
+        if (num == 0)
+        {
+            profile->DeviceNum = (int)InputDeviceType::Keyboard;
+        }
+        else
+        {
+            profile->PluggedIn = false;
+
+            // only override present in core
+            // when we have the control info
+            if (l_HasControlInfo)
+            {
+                l_ControlInfo.Controls[num].Present = 0;
+            }
+        }
+    }
+}
+
 static void open_controllers(void)
 {
+    // force re-fresh joystick list
+    SDL_JoystickUpdate();
+
     for (int i = 0; i < NUM_CONTROLLERS; i++)
     {
         InputProfile* profile = &l_InputProfiles[i];
 
         profile->InputDevice.CloseDevice();
 
-        if (profile->DeviceNum != -1)
+        if (profile->DeviceNum == (int)InputDeviceType::Automatic)
+        {
+            setup_device_automatic(i, profile);
+        }
+
+        if (profile->DeviceNum != (int)InputDeviceType::Keyboard)
         {
             profile->InputDevice.OpenDevice(profile->DeviceName, profile->DeviceNum);
         }
@@ -279,91 +417,121 @@ static void close_controllers(void)
     for (int i = 0; i < NUM_CONTROLLERS; i++)
     {
         InputProfile* profile = &l_InputProfiles[i];
-        
+
         profile->InputDevice.CloseDevice();
     }
 }
 
-static int get_button_state(InputProfile* profile, InputMapping* inputMapping)
+static int get_button_state(InputProfile* profile, const InputMapping* inputMapping)
 {
-    switch (inputMapping->Type)
+    int state = 0;
+
+    for (int i = 0; i < inputMapping->Count; i++)
     {
-        case InputType::GamepadButton:
+        const int data = inputMapping->Data.at(i);
+        const int extraData = inputMapping->ExtraData.at(i);
+
+        switch ((InputType)inputMapping->Type[i])
         {
-            return SDL_GameControllerGetButton(profile->InputDevice.GetGameControllerHandle(), (SDL_GameControllerButton)inputMapping->Data);
-        };
-        case InputType::GamepadAxis:
-        {
-            int axis_value = SDL_GameControllerGetAxis(profile->InputDevice.GetGameControllerHandle(), (SDL_GameControllerAxis)inputMapping->Data);
-            return (abs(axis_value) >= (SDL_AXIS_PEAK / 2) && (inputMapping->ExtraData ? axis_value > 0 : axis_value < 0)) ? 1 : 0;
-        };
-        case InputType::JoystickButton:
-        {
-            return SDL_JoystickGetButton(profile->InputDevice.GetJoystickHandle(), inputMapping->Data);
-        };
-        case InputType::JoystickAxis:
-        {
-            int axis_value = SDL_JoystickGetAxis(profile->InputDevice.GetJoystickHandle(), inputMapping->Data);
-            return (abs(axis_value) >= (SDL_AXIS_PEAK / 2) && (inputMapping->ExtraData ? axis_value > 0 : axis_value < 0)) ? 1 : 0;
+            case InputType::GamepadButton:
+            {
+                state |= SDL_GameControllerGetButton(profile->InputDevice.GetGameControllerHandle(), (SDL_GameControllerButton)data);
+            } break;
+            case InputType::GamepadAxis:
+            {
+                int axis_value = SDL_GameControllerGetAxis(profile->InputDevice.GetGameControllerHandle(), (SDL_GameControllerAxis)data);
+                state |= (abs(axis_value) >= (SDL_AXIS_PEAK / 2) && (extraData ? axis_value > 0 : axis_value < 0)) ? 1 : 0;
+            } break;
+            case InputType::JoystickButton:
+            {
+                state |= SDL_JoystickGetButton(profile->InputDevice.GetJoystickHandle(), data);
+            } break;
+            case InputType::JoystickAxis:
+            {
+                int axis_value = SDL_JoystickGetAxis(profile->InputDevice.GetJoystickHandle(), data);
+                state |= (abs(axis_value) >= (SDL_AXIS_PEAK / 2) && (extraData ? axis_value > 0 : axis_value < 0)) ? 1 : 0;
+            } break;
+            case InputType::Keyboard:
+            {
+                state |= l_KeyboardState[data] ? 1 : 0;
+            } break;
+            default:
+                break;
         }
-        case InputType::Keyboard:
-        {
-            return l_KeyboardState[inputMapping->Data] ? 1 : 0;
-        };
-        default:
-            break;
     }
 
-    return 0;
+    return state;
 }
 
 // returns axis input scaled to the range [-1, 1]
-static double get_axis_state(InputProfile* profile, InputMapping* inputMapping, int direction, double value)
+static double get_axis_state(InputProfile* profile, const InputMapping* inputMapping, const int direction, const double value, bool& useButtonMapping)
 {
-    switch (inputMapping->Type)
+    double axis_state   = value;
+    bool   button_state = false;
+
+    for (int i = 0; i < inputMapping->Count; i++)
     {
-        case InputType::GamepadButton:
+        const int data = inputMapping->Data.at(i);
+        const int extraData = inputMapping->ExtraData.at(i);
+
+        switch ((InputType)inputMapping->Type[i])
         {
-            int buttonState = SDL_GameControllerGetButton(profile->InputDevice.GetGameControllerHandle(), (SDL_GameControllerButton)inputMapping->Data);
-            return buttonState ? direction : value;
-        } break;
-        case InputType::GamepadAxis:
-        {
-            double axis_value = SDL_GameControllerGetAxis(profile->InputDevice.GetGameControllerHandle(), (SDL_GameControllerAxis)inputMapping->Data);
-            if (inputMapping->ExtraData ? axis_value > 0 : axis_value < 0)
+            case InputType::GamepadButton:
             {
-                axis_value = (axis_value / SDL_AXIS_PEAK);
-                axis_value = abs(axis_value) * direction;
-                return axis_value;
-            }
-        } break;
-        case InputType::JoystickButton:
-        {
-            int buttonState =  SDL_JoystickGetButton(profile->InputDevice.GetJoystickHandle(), inputMapping->Data);
-            return buttonState ? direction : value;
-        } break;
-        case InputType::JoystickAxis:
-        {
-            double axis_value = SDL_JoystickGetAxis(profile->InputDevice.GetJoystickHandle(), inputMapping->Data);
-            if (inputMapping->ExtraData ? axis_value > 0 : axis_value < 0)
+                button_state |= SDL_GameControllerGetButton(profile->InputDevice.GetGameControllerHandle(), (SDL_GameControllerButton)data);;
+            } break;
+            case InputType::GamepadAxis:
             {
-                axis_value = (axis_value / SDL_AXIS_PEAK);
-                axis_value = abs(axis_value) * direction;
-                return axis_value;
-            }
-        } break;
-        case InputType::Keyboard:
-        {
-            return l_KeyboardState[inputMapping->Data] ? direction : value;
-        } break;
-        default:
-            break;
+                double axis_value = SDL_GameControllerGetAxis(profile->InputDevice.GetGameControllerHandle(), (SDL_GameControllerAxis)data);
+                if (extraData ? axis_value > 0 : axis_value < 0)
+                {
+                    axis_value = (axis_value / SDL_AXIS_PEAK);
+                    axis_value = abs(axis_value) * direction;
+                    axis_state = axis_value;
+                }
+            } break;
+            case InputType::JoystickButton:
+            {
+                button_state |= SDL_JoystickGetButton(profile->InputDevice.GetJoystickHandle(), data);;
+            } break;
+            case InputType::JoystickAxis:
+            {
+                double axis_value = SDL_JoystickGetAxis(profile->InputDevice.GetJoystickHandle(), data);
+                if (extraData ? axis_value > 0 : axis_value < 0)
+                {
+                    axis_value = (axis_value / SDL_AXIS_PEAK);
+                    axis_value = abs(axis_value) * direction;
+                    axis_state = axis_value;
+                }
+            } break;
+            case InputType::Keyboard:
+            {
+                button_state |= l_KeyboardState[data];
+            } break;
+            default:
+                break;
+        }
     }
 
-    return value;
+    // when a button has been mapped
+    // to an axis, we should prioritize 
+    // the button when it's been pressed
+    if (button_state)
+    {
+        useButtonMapping = true;
+        return direction;
+    }
+    else if (!useButtonMapping)
+    {
+        return axis_state;
+    } 
+    else
+    {
+        return value;
+    }
 }
 
-static double simulate_deadzone(double n64InputAxis, double maxAxis, int deadzone, double axisRange)
+static double simulate_deadzone(const double n64InputAxis, const double maxAxis, const int deadzone, const double axisRange)
 {
     double axisAbsolute = std::abs(n64InputAxis);
 
@@ -380,16 +548,17 @@ static double simulate_deadzone(double n64InputAxis, double maxAxis, int deadzon
     return axisAbsolute;
 }
 
-// Credit: MerryMage
-static void simulate_octagon(double inputX, double inputY, double deadzoneFactor, int& outputX, int& outputY)
+// Credit: MerryMage & fzurita
+static void simulate_octagon(const double inputX, const double inputY, const double deadzoneFactor, const double sensitivityFactor, int& outputX, int& outputY)
 {
-    double maxAxis     = N64_AXIS_PEAK;
-    double maxDiagonal = MAX_DIAGONAL_VALUE;
-    int deadzone       = static_cast<int>(deadzoneFactor * N64_AXIS_PEAK);
-    double axisRange   = maxAxis - deadzone;
+    // don't increase emulated range at higher than 100% sensitivity
+    const double maxAxis     = N64_AXIS_PEAK * std::min(sensitivityFactor, 1.0);
+    const double maxDiagonal = MAX_DIAGONAL_VALUE * std::min(sensitivityFactor, 1.0);
+    const int    deadzone    = (int)(deadzoneFactor * N64_AXIS_PEAK * sensitivityFactor);
+    const double axisRange   = maxAxis - deadzone;
     // scale to [-maxAxis, maxAxis]
-    double ax = inputX * maxAxis;
-    double ay = inputY * maxAxis;
+    double ax = std::min(inputX * sensitivityFactor, 1.0) * maxAxis;
+    double ay = std::min(inputY * sensitivityFactor, 1.0) * maxAxis;
 
     // check whether (ax, ay) is within the circle of radius MAX_AXIS
     double len = std::sqrt(ax*ax + ay*ay);
@@ -410,18 +579,18 @@ static void simulate_octagon(double inputX, double inputY, double deadzoneFactor
     // bound diagonals to an octagonal range [-69, 69]
     if (ax != 0.0 && ay != 0.0)
     {
-        double slope = ay / ax;
-        double edgex = copysign(maxAxis / (std::abs(slope) + (maxAxis - maxDiagonal) / maxDiagonal), ax);
-        double edgey = copysign(std::min(std::abs(edgex * slope), maxAxis / (1.0 / std::abs(slope) + (maxAxis - maxDiagonal) / maxDiagonal)), ay);
+        const double slope = ay / ax;
+        double edgex = std::copysign(maxAxis / (std::abs(slope) + (maxAxis - maxDiagonal) / maxDiagonal), ax);
+        const double edgey = std::copysign(std::min(std::abs(edgex * slope), maxAxis / (1.0 / std::abs(slope) + (maxAxis - maxDiagonal) / maxDiagonal)), ay);
         edgex = edgey / slope;
 
-        double scale = std::sqrt(edgex*edgex + edgey*edgey) / maxAxis;
+        const double scale = std::sqrt(edgex*edgex + edgey*edgey) / maxAxis;
         ax *= scale;
         ay *= scale;
     }
 
-    outputX = static_cast<int>(ax);
-    outputY = static_cast<int>(ay);
+    outputX = (int)ax;
+    outputY = (int)ay;
 }
 
 static unsigned char data_crc(unsigned char *data, int length)
@@ -450,18 +619,26 @@ static unsigned char data_crc(unsigned char *data, int length)
 
 void sdl_init()
 {
-    for (int subsystem : {SDL_INIT_GAMECONTROLLER, SDL_INIT_VIDEO, SDL_INIT_HAPTIC})
+    std::filesystem::path gameControllerDbPath;
+
+    for (const int subsystem : {SDL_INIT_GAMECONTROLLER, SDL_INIT_VIDEO, SDL_INIT_HAPTIC})
     {
         if (!SDL_WasInit(subsystem))
         {
             SDL_InitSubSystem(subsystem);
         }
     }
+
+    gameControllerDbPath = CoreGetSharedDataDirectory();
+    gameControllerDbPath += "/gamecontrollerdb.txt";
+
+    // load mappings from file
+    SDL_GameControllerAddMappingsFromFile(gameControllerDbPath.string().c_str());
 }
 
 void sdl_quit()
 {
-    for (int subsystem : {SDL_INIT_GAMECONTROLLER, SDL_INIT_HAPTIC})
+    for (const int subsystem : {SDL_INIT_GAMECONTROLLER, SDL_INIT_HAPTIC})
     {
         if (SDL_WasInit(subsystem))
         {
@@ -554,7 +731,7 @@ EXPORT m64p_error CALL PluginGetVersion(m64p_plugin_type *pluginType, int *plugi
 // Custom Plugin Functions
 //
 
-EXPORT m64p_error CALL PluginConfig()
+EXPORT m64p_error CALL PluginConfig2(int romConfig)
 {
     if (l_SDLThread == nullptr)
     {
@@ -566,11 +743,17 @@ EXPORT m64p_error CALL PluginConfig()
 
     l_SDLThread->SetAction(SDLThreadAction::SDLPumpEvents);
 
-    UserInterface::MainDialog dialog(nullptr, l_SDLThread);
+    UserInterface::MainDialog dialog(nullptr, l_SDLThread, romConfig);
     dialog.exec();
 
     l_SDLThread->SetAction(SDLThreadAction::None);
-    
+
+    // wait until it's done pumping events
+    while (l_SDLThread->GetCurrentAction() == SDLThreadAction::SDLPumpEvents)
+    {
+        QThread::msleep(5);
+    }
+
     // reload settings
     load_settings();
 
@@ -584,6 +767,11 @@ EXPORT m64p_error CALL PluginConfig()
     open_controllers();
 
     return M64ERR_SUCCESS;
+}
+
+EXPORT int CALL PluginConfig2HasRomConfig(void)
+{
+    return 1;
 }
 
 //
@@ -660,13 +848,13 @@ EXPORT void CALL GetKeys(int Control, BUTTONS* Keys)
     // check if device has been disconnected,
     // if it has, try to open it again,
     // only do this every 2 seconds to prevent lag
-    const auto currentTime = std::chrono::high_resolution_clock::now();
+    const auto currentTime  = std::chrono::high_resolution_clock::now();
     const int secondsPassed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - profile->LastDeviceCheckTime).count();
     if (secondsPassed >= 2)
     {
         profile->LastDeviceCheckTime = currentTime;
 
-        if (profile->DeviceNum != -1)
+        if (profile->DeviceNum != (int)InputDeviceType::Keyboard)
         {
             if (profile->InputDevice.IsOpeningDevice())
             {
@@ -676,7 +864,6 @@ EXPORT void CALL GetKeys(int Control, BUTTONS* Keys)
             if (!profile->InputDevice.HasOpenDevice() || !profile->InputDevice.IsAttached())
             {
                 profile->InputDevice.OpenDevice(profile->DeviceName, profile->DeviceNum);
-                return;
             }
         }
     }
@@ -697,16 +884,18 @@ EXPORT void CALL GetKeys(int Control, BUTTONS* Keys)
     Keys->Z_TRIG       = get_button_state(profile, &profile->Button_ZTrigger);
 
     double inputX = 0, inputY = 0;
-    inputY = get_axis_state(profile, &profile->AnalogStick_Up,    1, inputY);
-    inputY = get_axis_state(profile, &profile->AnalogStick_Down, -1, inputY);
-    inputX = get_axis_state(profile, &profile->AnalogStick_Left, -1, inputX);
-    inputX = get_axis_state(profile, &profile->AnalogStick_Right, 1, inputX);
+    bool useButtonMapping = false;
+    inputY = get_axis_state(profile, &profile->AnalogStick_Up,    1, inputY, useButtonMapping);
+    inputY = get_axis_state(profile, &profile->AnalogStick_Down, -1, inputY, useButtonMapping);
+    inputX = get_axis_state(profile, &profile->AnalogStick_Left, -1, inputX, useButtonMapping);
+    inputX = get_axis_state(profile, &profile->AnalogStick_Right, 1, inputX, useButtonMapping);
 
     int octagonX = 0, octagonY = 0;
     simulate_octagon(
         inputX, // inputX
         inputY, // inputY
         profile->DeadzoneValue / 100.0, // deadzoneFactor
+        profile->SensitivityValue / 100.0, // sensitivityFactor
         octagonX, // outputX
         octagonY  // outputY
     );
@@ -722,7 +911,7 @@ EXPORT void CALL InitiateControllers(CONTROL_INFO ControlInfo)
         l_KeyboardState[i] = 0;
     }
 
-    l_ControlInfo = ControlInfo;
+    l_ControlInfo    = ControlInfo;
     l_HasControlInfo = true;
 
     // load settings
@@ -746,6 +935,7 @@ EXPORT int CALL RomOpen(void)
 
 EXPORT void CALL RomClosed(void)
 {
+    l_HasControlInfo = false;
     close_controllers();
 }
 

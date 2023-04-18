@@ -8,7 +8,7 @@ set(CMAKE_AUTOUIC ON)
 # disable lib prefix
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
-find_package(${QT_VERSION} COMPONENTS Gui Widgets Core Svg REQUIRED)
+find_package(Qt6 COMPONENTS Gui Widgets Core Svg REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
@@ -17,7 +17,9 @@ set(RMG_INPUT_SOURCES
     UserInterface/Widget/ControllerWidget.ui
     UserInterface/Widget/ControllerWidget.cpp
     UserInterface/Widget/ControllerImageWidget.cpp
-    UserInterface/Widget/CustomButton.cpp
+    UserInterface/Widget/MappingButton.cpp
+    UserInterface/Widget/AddMappingButton.cpp
+    UserInterface/Widget/RemoveMappingButton.cpp
     UserInterface/EventFilter.cpp
     UserInterface/OptionsDialog.ui
     UserInterface/OptionsDialog.cpp
@@ -41,4 +43,4 @@ target_include_directories(RMG-Input PRIVATE
     ${SDL2_INCLUDE_DIRS}
 )
 
-target_link_libraries(RMG-Input ${QT_VERSION}::Gui ${QT_VERSION}::Widgets ${QT_VERSION}::Svg)
+target_link_libraries(RMG-Input Qt6::Gui Qt6::Widgets Qt6::Svg)

@@ -19,6 +19,7 @@
 #include <QResizeEvent>
 #include <QSvgRenderer>
 #include <QMessageBox>
+#include <QInputDialog>
 #include <SDL.h>
 #include <iostream>
 
@@ -91,7 +92,7 @@ ControllerWidget::ControllerWidget(QWidget* parent, EventFilter* eventFilter) : 
         { this->analogStickRightButton, SettingsID::Input_AnalogStickRight_InputType, SettingsID::Input_AnalogStickRight_Name, SettingsID::Input_AnalogStickRight_Data, SettingsID::Input_AnalogStickRight_ExtraData },
     });
 
-    CustomButton* buttonList[] =
+    MappingButton* buttonList[] =
     {
         // dpad
         this->dpadUpButton,
@@ -122,8 +123,10 @@ ControllerWidget::ControllerWidget(QWidget* parent, EventFilter* eventFilter) : 
         this->setupButtonWidgets.append(button);
     }
 
-    this->on_controllerPluggedCheckBox_toggled(false);
-    this->initializeButtons();
+    this->setPluggedIn(false);
+    this->initializeMappingButtons();
+    this->initializeProfileButtons();
+    this->initializeMiscButtons();
 }
 
 ControllerWidget::~ControllerWidget()
@@ -131,45 +134,76 @@ ControllerWidget::~ControllerWidget()
 
 }
 
-void ControllerWidget::initializeButtons()
+void ControllerWidget::initializeMappingButtons()
 {
-    CustomButton* buttonList[] =
+    struct
+    {
+        MappingButton* mappingButton;
+        AddMappingButton* addMappingButton;
+        RemoveMappingButton* removeMappingButton;
+    } mappingList[] =
     {
         // dpad
-        this->dpadUpButton,
-        this->dpadDownButton,
-        this->dpadLeftButton,
-        this->dpadRightButton,
+        { this->dpadUpButton, this->dpadUpAddButton, this->dpadUpRemoveButton },
+        { this->dpadDownButton, this->dpadDownAddButton, this->dpadDownRemoveButton },
+        { this->dpadLeftButton, this->dpadLeftAddButton, this->dpadLeftRemoveButton },
+        { this->dpadRightButton, this->dpadRightAddButton, this->dpadRightRemoveButton },
         // analog stick
-        this->analogStickUpButton,
-        this->analogStickDownButton,
-        this->analogStickLeftButton,
-        this->analogStickRightButton,
+        { this->analogStickUpButton, this->analogStickUpAddButton, this->analogStickUpRemoveButton },
+        { this->analogStickDownButton, this->analogStickDownAddButton, this->analogStickDownRemoveButton },
+        { this->analogStickLeftButton, this->analogStickLeftAddButton, this->analogStickLeftRemoveButton },
+        { this->analogStickRightButton, this->analogStickRightAddButton, this->analogStickRightRemoveButton },
         // cbuttons
-        this->cbuttonUpButton,
-        this->cbuttonDownButton,
-        this->cbuttonLeftButton,
-        this->cbuttonRightButton,
+        { this->cbuttonUpButton, this->cbuttonUpAddButton, this->cbuttonUpRemoveButton },
+        { this->cbuttonDownButton, this->cbuttonDownAddButton, this->cbuttonDownRemoveButton },
+        { this->cbuttonLeftButton, this->cbuttonLeftAddButton, this->cbuttonLeftRemoveButton },
+        { this->cbuttonRightButton, this->cbuttonRightAddButton, this->cbuttonRightRemoveButton },
         // triggers
-        this->leftTriggerButton,
-        this->rightTriggerButton,
-        this->zTriggerButton,
+        { this->leftTriggerButton, this->leftTriggerAddButton, this->leftTriggerRemoveButton },
+        { this->rightTriggerButton, this->rightTriggerAddButton, this->rightTriggerRemoveButton },
+        { this->zTriggerButton, this->zTriggerAddButton, this->zTriggerRemoveButton },
         // buttons
-        this->aButton,
-        this->bButton,
-        this->startButton,
+        { this->aButton, this->aAddButton, this->aRemoveButton },
+        { this->bButton, this->bAddButton, this->bRemoveButton },
+        { this->startButton, this->startAddButton, this->startRemoveButton },
     };
 
-    for (auto& button : buttonList)
+    for (auto& mapping : mappingList)
     {
-        button->Initialize(this);
-        button->setText(" ");
+        // initialize buttons
+        mapping.mappingButton->Initialize(this);
+        mapping.addMappingButton->Initialize(this, mapping.mappingButton);
+        mapping.removeMappingButton->Initialize(this, mapping.mappingButton);
+
+        // clear text & set icon
+        mapping.addMappingButton->setText("");
+        mapping.removeMappingButton->setText("");
+        mapping.addMappingButton->setIcon(QIcon::fromTheme("add-line"));
+        mapping.removeMappingButton->setIcon(QIcon::fromTheme("delete-back-line"));
     }
+}
+
+void ControllerWidget::initializeProfileButtons()
+{
+    this->addProfileButton->setText("");
+    this->addProfileButton->setIcon(QIcon::fromTheme("add-line"));
+    this->removeProfileButton->setText("");
+    this->removeProfileButton->setIcon(QIcon::fromTheme("delete-bin-line"));
+}
+
+void ControllerWidget::initializeMiscButtons()
+{
+    this->inputDeviceRefreshButton->setIcon(QIcon::fromTheme("refresh-line"));
+    this->resetButton->setIcon(QIcon::fromTheme("restart-line"));
+    this->optionsButton->setIcon(QIcon::fromTheme("settings-3-line"));
 }
 
 bool ControllerWidget::isCurrentDeviceKeyboard()
 {
-    return this->inputDeviceComboBox->currentIndex() == 0;
+    int deviceNum = this->inputDeviceComboBox->currentData().toInt();
+
+    return deviceNum == (int)InputDeviceType::Automatic ||
+            deviceNum == (int)InputDeviceType::Keyboard;
 }
 
 bool ControllerWidget::isCurrentDeviceNotFound()
@@ -212,7 +246,7 @@ void ControllerWidget::enableAllChildren()
     }
 }
 
-void ControllerWidget::removeDuplicates(CustomButton* button)
+void ControllerWidget::removeDuplicates(MappingButton* button)
 {
     std::string section = this->getCurrentSettingsSection().toStdString();
 
@@ -229,11 +263,20 @@ void ControllerWidget::removeDuplicates(CustomButton* button)
             continue;
         }
 
-        if ((buttonWidget->GetInputType() == button->GetInputType()) &&
-            (buttonWidget->GetInputData() == button->GetInputData()) &&
-            (buttonWidget->GetExtraInputData() == button->GetExtraInputData()))
+        std::vector<int> inputType;
+        std::vector<int> inputData;
+        std::vector<int> extraInputData;
+
+        inputType = button->GetInputType();
+        inputData = button->GetInputData();
+        extraInputData = button->GetExtraInputData();
+
+        for (int i = 0; i < inputType.size(); i++)
         {
-            buttonWidget->Clear();
+            if (buttonWidget->HasInputData((InputType)inputType.at(i), inputData.at(i), extraInputData.at(i)))
+            {
+                buttonWidget->RemoveInputData((InputType)inputType.at(i), inputData.at(i), extraInputData.at(i));
+            }
         }
     }
 }
@@ -243,11 +286,152 @@ QString ControllerWidget::getCurrentSettingsSection()
     return this->profileComboBox->currentData().toString();
 }
 
+QString ControllerWidget::getUserProfileSectionName(QString profile)
+{
+    QString profileSection;
+
+    profileSection = "Rosalie's Mupen GUI - Input Plugin User Profile \"";
+    profileSection += profile;
+    profileSection += "\"";
+
+    return profileSection;
+}
+
+bool ControllerWidget::isSectionUserProfile(QString section)
+{
+    return section.contains("User Profile");
+}
+
+bool ControllerWidget::isSectionGameProfile(QString section)
+{
+    return !this->isSectionUserProfile(section) && section.contains("Game");
+}
+
+void ControllerWidget::setPluggedIn(bool value)
+{
+    QWidget* widgetList[] =
+    {
+        // dpad
+        this->dpadGroupBox,
+        this->dpadUpButton, this->dpadUpAddButton, this->dpadUpRemoveButton,
+        this->dpadDownButton, this->dpadDownAddButton, this->dpadDownRemoveButton,
+        this->dpadLeftButton, this->dpadLeftAddButton, this->dpadLeftRemoveButton,
+        this->dpadRightButton, this->dpadRightAddButton, this->dpadRightRemoveButton,
+        // analog stick
+        this->analogStickGroupBox,
+        this->analogStickUpButton, this->analogStickUpAddButton, this->analogStickUpRemoveButton,
+        this->analogStickDownButton, this->analogStickDownAddButton, this->analogStickDownRemoveButton,
+        this->analogStickLeftButton, this->analogStickLeftAddButton, this->analogStickLeftRemoveButton,
+        this->analogStickRightButton, this->analogStickRightAddButton, this->analogStickRightRemoveButton,
+        this->analogStickSensitivitySlider,
+        // cbuttons
+        this->cButtonsGroupBox,
+        this->cbuttonUpButton, this->cbuttonUpAddButton, this->cbuttonUpRemoveButton,
+        this->cbuttonDownButton, this->cbuttonDownAddButton, this->cbuttonDownRemoveButton,
+        this->cbuttonLeftButton, this->cbuttonLeftAddButton, this->cbuttonLeftRemoveButton,
+        this->cbuttonRightButton, this->cbuttonRightAddButton, this->cbuttonRightRemoveButton,
+        // triggers
+        this->analogStickGroupBox,
+        this->leftTriggerButton, this->leftTriggerAddButton, this->leftTriggerRemoveButton,
+        this->rightTriggerButton, this->rightTriggerAddButton, this->rightTriggerRemoveButton,
+        this->zTriggerButton, this->zTriggerAddButton, this->zTriggerRemoveButton,
+        // buttons
+        this->buttonsGroupBox,
+        this->aButton, this->aAddButton, this->aRemoveButton,
+        this->bButton, this->bAddButton, this->bRemoveButton,
+        this->startButton, this->startAddButton, this->startRemoveButton,
+        // misc UI elements
+        this->deadZoneGroupBox,
+        this->deadZoneSlider,
+        this->optionsButton,
+        this->resetButton
+    };
+
+    for (auto& widget : widgetList)
+    {
+        widget->setEnabled(value);
+    }
+
+    this->ClearControllerImage();
+}
+
+bool ControllerWidget::hasAnyGameSettingChanged(void)
+{
+    std::string section = this->getCurrentSettingsSection().toStdString();
+    // fallback to main section
+    if (!CoreSettingsSectionExists(section))
+    {
+        section = this->settingsSection.toStdString();
+    }
+
+    // retrieve data from settings
+    bool settingsIsPluggedIn = CoreSettingsGetBoolValue(SettingsID::Input_PluggedIn, section);
+    int settingsDeadZone     = CoreSettingsGetIntValue(SettingsID::Input_Deadzone, section);
+    int settingsAnalogSensitivity = 100;
+    // account for profiles before v0.3.9
+    if (CoreSettingsKeyExists(section, "Sensitivity"))
+    {
+        settingsAnalogSensitivity = CoreSettingsGetIntValue(SettingsID::Input_Sensitivity, section);
+    }
+
+    // retrieve current data
+    bool currentIsPluggedIn = this->inputDeviceComboBox->currentText() != "None";
+    int currentDeadZone  = this->deadZoneSlider->value();
+    int currentAnalogSensitivity = this->analogStickSensitivitySlider->value();
+
+    // compare data
+    if (settingsIsPluggedIn != currentIsPluggedIn ||
+        settingsDeadZone != currentDeadZone ||
+        settingsAnalogSensitivity != currentAnalogSensitivity)
+    {
+        return true;
+    }
+
+    // compare button mappings with settings
+    for (auto& buttonSetting : this->buttonSettingMappings)
+    {
+        // retrieve data from settings
+        std::vector<int> settingsTypes         = CoreSettingsGetIntListValue(buttonSetting.inputTypeSettingsId, section);
+        std::vector<std::string> settingsNames = CoreSettingsGetStringListValue(buttonSetting.nameSettingsId, section);
+        std::vector<int> settingsData          = CoreSettingsGetIntListValue(buttonSetting.dataSettingsId, section);
+        std::vector<int> settingsExtraData     = CoreSettingsGetIntListValue(buttonSetting.extraDataSettingsId, section);
+
+        // retrieve current data
+        std::vector<int> currentTypes         = buttonSetting.button->GetInputType();
+        std::vector<std::string> currentNames = buttonSetting.button->GetInputText();
+        std::vector<int> currentData          = buttonSetting.button->GetInputData();
+        std::vector<int> currentExtraData     = buttonSetting.button->GetExtraInputData();
+
+        // compare data
+        if (settingsTypes != currentTypes ||
+            settingsNames != currentNames ||
+            settingsData  != currentData  ||
+            settingsExtraData != currentExtraData)
+        {
+            return true;
+        }
+    }
+
+    // no differences found
+    return false;
+}
+
+void ControllerWidget::showErrorMessage(QString text, QString details)
+{
+    QMessageBox msgBox(this);
+    msgBox.setIcon(QMessageBox::Icon::Critical);
+    msgBox.setWindowTitle("Error");
+    msgBox.setText(text);
+    msgBox.setDetailedText(details);
+    msgBox.addButton(QMessageBox::Ok);
+    msgBox.exec();
+}
+
 void ControllerWidget::AddInputDevice(QString deviceName, int deviceNum)
 {
     QString name = deviceName;
 
-    if (deviceNum != -1)
+    if (deviceNum >= 0)
     {
         name += " (";
         name += QString::number(deviceNum);
@@ -279,9 +463,15 @@ void ControllerWidget::CheckInputDeviceSettings()
 {
     std::string section = this->getCurrentSettingsSection().toStdString();
 
-    // fallback to main section
+    // fallback to main section unless
+    // it's a user profile
     if (!CoreSettingsSectionExists(section))
     {
+        if (this->isSectionUserProfile(this->getCurrentSettingsSection()))
+        {
+            return;
+        }
+
         if (!CoreSettingsSectionExists(this->settingsSection.toStdString()))
         {
             return;
@@ -290,14 +480,22 @@ void ControllerWidget::CheckInputDeviceSettings()
         section = this->settingsSection.toStdString();
     }
 
+    bool isPluggedIn       = CoreSettingsGetBoolValue(SettingsID::Input_PluggedIn, section);
     std::string deviceName = CoreSettingsGetStringValue(SettingsID::Input_DeviceName, section);
-    int deviceNum = CoreSettingsGetIntValue(SettingsID::Input_DeviceNum, section);
+    int deviceNum          = CoreSettingsGetIntValue(SettingsID::Input_DeviceNum, section);
 
     // do nothing when input device combobox
     // is empty
     if (this->inputDeviceComboBox->count() == 0)
     {
         return;
+    }
+
+    // account for old setting
+    if (!isPluggedIn && deviceNum != (int)InputDeviceType::None)
+    {
+        deviceName = "None";
+        deviceNum  = (int)InputDeviceType::None;
     }
 
     // clear (not found) devices first
@@ -309,12 +507,18 @@ void ControllerWidget::CheckInputDeviceSettings()
     }
 
     int deviceNameIndex = this->inputDeviceComboBox->findText(QString::fromStdString(deviceName), Qt::MatchFlag::MatchStartsWith);
-    int deviceNumIndex = this->inputDeviceComboBox->findData(deviceNum);
+    int deviceNumIndex  = this->inputDeviceComboBox->findData(deviceNum);
 
     if ((deviceNumIndex != -1) &&
         (this->inputDeviceComboBox->itemText(deviceNumIndex).startsWith(QString::fromStdString(deviceName))))
     { // full match
         this->inputDeviceComboBox->setCurrentIndex(deviceNumIndex);
+
+        // force-refresh automatic input device
+        if (deviceNum == (int)InputDeviceType::Automatic)
+        {
+            this->on_inputDeviceComboBox_currentIndexChanged(deviceNumIndex);
+        }
     }
     else if (deviceNameIndex != -1)
     { // name only match
@@ -347,18 +551,19 @@ void ControllerWidget::GetCurrentInputDevice(QString& deviceName, int& deviceNum
     if (this->isCurrentDeviceNotFound() && !ignoreDeviceNotFound)
     {
         deviceName = "";
-        deviceNum = -1;
+        deviceNum  = -1;
     }
     else
     {
         deviceName = this->inputDeviceNameList.at(currentIndex);
-        deviceNum = this->inputDeviceComboBox->itemData(currentIndex).toInt();
+        deviceNum  = this->inputDeviceComboBox->itemData(currentIndex).toInt();
     }
 }
 
 void ControllerWidget::on_deadZoneSlider_valueChanged(int value)
 {
-    QString title = tr("Deadzone: ");
+    QString title;
+    title = "Deadzone: ";
     title += QString::number(value);
     title += "%";
 
@@ -366,8 +571,32 @@ void ControllerWidget::on_deadZoneSlider_valueChanged(int value)
     this->controllerImageWidget->SetDeadzone(value);
 }
 
+void ControllerWidget::on_analogStickSensitivitySlider_valueChanged(int value)
+{
+    QString title = tr("Analog Stick Sensitivity: ");
+    title += QString::number(value);
+    title += "%";
+
+    this->analogStickSensitivityGroupBox->setTitle(title);
+    this->controllerImageWidget->SetSensitivity(value);
+}
+
 void ControllerWidget::on_profileComboBox_currentIndexChanged(int value)
 {
+    // save profile when switching profile
+    if (this->initialized && this->previousProfileComboBoxIndex != -1)
+    {
+        // ensure the previous index doesn't go out of bounds
+        if (this->previousProfileComboBoxIndex < this->profileComboBox->count())
+        {
+            QString section = this->profileComboBox->itemData(this->previousProfileComboBoxIndex).toString();
+            this->SaveSettings(section);
+        }
+    }
+
+    // update previous index
+    this->previousProfileComboBoxIndex = value;
+
     // reload settings from section
     this->LoadSettings(this->getCurrentSettingsSection());
     // reload input device settings
@@ -383,15 +612,18 @@ void ControllerWidget::on_inputDeviceComboBox_currentIndexChanged(int value)
     }
 
     QString deviceName = this->inputDeviceNameList.at(value);
-    int deviceNum = this->inputDeviceComboBox->itemData(value).toInt();
+    int deviceNum      = this->inputDeviceComboBox->itemData(value).toInt();
 
     this->ClearControllerImage();
 
     if (this->isCurrentDeviceNotFound())
     {
         deviceName = "";
-        deviceNum = -1;
+        deviceNum  = -1;
     }
+
+    // set plugged in state
+    this->setPluggedIn(deviceNum != (int)InputDeviceType::None);
 
     emit this->CurrentInputDeviceChanged(this, deviceName, deviceNum);
 }
@@ -401,57 +633,68 @@ void ControllerWidget::on_inputDeviceRefreshButton_clicked()
     emit this->RefreshInputDevicesButtonClicked();
 }
 
-void ControllerWidget::on_controllerPluggedCheckBox_toggled(bool value)
+void ControllerWidget::on_addProfileButton_clicked()
 {
-    QWidget* widgetList[] =
-    {
-        // dpad
-        this->dpadUpButton,
-        this->dpadDownButton,
-        this->dpadLeftButton,
-        this->dpadRightButton,
-        // analog stick
-        this->analogStickUpButton,
-        this->analogStickDownButton,
-        this->analogStickLeftButton,
-        this->analogStickRightButton,
-        // cbuttons
-        this->cbuttonUpButton,
-        this->cbuttonDownButton,
-        this->cbuttonLeftButton,
-        this->cbuttonRightButton,
-        // triggers
-        this->leftTriggerButton,
-        this->rightTriggerButton,
-        this->zTriggerButton,
-        // buttons
-        this->aButton,
-        this->bButton,
-        this->startButton,
-        // misc UI elements
-        this->deadZoneSlider,
-        this->optionsButton,
-        this->profileComboBox,
-        this->removeProfileButton,
-        //this->setupButton,
-        this->resetButton,
-        this->inputDeviceComboBox,
-        this->inputDeviceRefreshButton
-    };
+    std::vector<std::string> profiles;
+    std::vector<std::string>::iterator profilesIter;
+    QString section;
 
-    for (auto& widget : widgetList)
-    {
-        widget->setEnabled(value);
+    // retrieve profiles from settings
+    profiles = CoreSettingsGetStringListValue(SettingsID::Input_Profiles);
+
+    // ask user for a new profile name
+    QString newProfile = QInputDialog::getText(this,
+            "Create New Profile", "New profile name:", 
+            QLineEdit::Normal, "", 
+            nullptr,
+            Qt::WindowCloseButtonHint | Qt::WindowTitleHint);
+    if (newProfile.isEmpty())
+    { // do nothing when user has canceled
+        return;
     }
 
-    this->ClearControllerImage();
+    // ensure profile doesn't contain ';' or '[]'
+    if (newProfile.contains(';') ||
+        newProfile.contains('[') ||
+        newProfile.contains(']'))
+    {
+        this->showErrorMessage("Profile name cannot contain ';','[' or ']'!");
+        return;
+    }
+
+    // ensure the name is unique
+    profilesIter = std::find(profiles.begin(), profiles.end(), newProfile.toStdString());
+    if (profilesIter != profiles.end())
+    {
+        this->showErrorMessage("Profile with the same name already exists!");
+        return;
+    }
+
+    section = this->getUserProfileSectionName(newProfile);
+
+    // add profile to UI
+    this->profileComboBox->addItem(newProfile, section);
+    this->profileComboBox->setCurrentText(newProfile);
+
+    // add profile to settings
+    profiles.push_back(newProfile.toStdString());
+    CoreSettingsSetValue(SettingsID::Input_Profiles, profiles);
+
+    // update added profiles
+    if (!this->addedProfiles.contains(section))
+    {
+        this->addedProfiles.push_back(section);
+    }
+
+    // emit signal
+    emit this->UserProfileAdded(newProfile, section);
 }
 
 void ControllerWidget::on_removeProfileButton_clicked()
 {
     bool ret;
 
-    if (this->profileComboBox->currentIndex() == 0)
+    if (this->profileComboBox->currentData().toString() == this->settingsSection)
     {
         QMessageBox messageBox(this);
         messageBox.setIcon(QMessageBox::Icon::Warning);
@@ -466,35 +709,67 @@ void ControllerWidget::on_removeProfileButton_clicked()
         return;
     }
 
-    // try to remove game settings section
-    ret = CoreSettingsDeleteSection(this->getCurrentSettingsSection().toStdString());
-    if (!ret)
-    { // show error when failed
-        QMessageBox messageBox(this);
-        messageBox.setIcon(QMessageBox::Icon::Critical);
-        messageBox.setWindowTitle("Error");
-        messageBox.setText("CoreSettingsDeleteSection() Failed!");
-        messageBox.setDetailedText(QString::fromStdString(CoreGetError()));
-        messageBox.addButton(QMessageBox::Ok);
-        messageBox.exec();
+    QString currentSection = this->getCurrentSettingsSection();
+
+    // add to removed profiles list (will be deleted later)
+    if (!this->removedProfiles.contains(currentSection))
+    {
+        this->removedProfiles.push_back(currentSection);
+    }
+    this->addedProfiles.removeAll(currentSection);
+
+    // if section is a user profile,
+    // also remove it from the profiles list
+    if (this->isSectionUserProfile(currentSection))
+    {
+        std::string userProfile = this->profileComboBox->currentText().toStdString();
+        std::vector<std::string> userProfiles = CoreSettingsGetStringListValue(SettingsID::Input_Profiles);
+        std::vector<std::string>::iterator userProfilesIter;
+
+        userProfilesIter = std::find(userProfiles.begin(), userProfiles.end(), userProfile);
+        if (userProfilesIter != userProfiles.end())
+        {
+            userProfiles.erase(userProfilesIter);
+        }
+
+        CoreSettingsSetValue(SettingsID::Input_Profiles, userProfiles);
+
+        // remove item from UI
+        this->profileComboBox->removeItem(this->profileComboBox->currentIndex());
+
+        // emit signal
+        emit this->UserProfileRemoved(this->profileComboBox->currentText(), currentSection);
     }
 
-    // change profile back to main
-    this->profileComboBox->setCurrentIndex(0);
-}
+    // switch back to main profile when deleting
+    // a per game profile
+    if (this->isSectionGameProfile(currentSection))
+    {
+        // ensure we don't save the game specific profile
+        // upon switching to the main profile
+        this->previousProfileComboBoxIndex = -1;
+        this->profileComboBox->setCurrentIndex(0);
+    }
 
-void ControllerWidget::on_setupButton_clicked()
-{
-    this->currentInSetup = true;
-    this->currentSetupButtonWidgetIndex = 0;
-
-    this->setupButtonWidgets.at(0)->setFocus(Qt::OtherFocusReason);
-    this->setupButtonWidgets.at(0)->click();
+    // force a re-load when
+    // we're only loading the game profile
+    if (this->onlyLoadGameProfile)
+    {
+        this->LoadSettings(this->settingsSection);
+    }
 }
 
 void ControllerWidget::on_resetButton_clicked()
 {
-    this->LoadSettings();
+    QString section = this->getCurrentSettingsSection();
+
+    // revert settings in current section when it exists
+    if (CoreSettingsSectionExists(section.toStdString()))
+    {
+        CoreSettingsRevertSection(section.toStdString());
+    }
+
+    this->LoadSettings(section);
 }
 
 void ControllerWidget::on_optionsButton_clicked()
@@ -509,7 +784,7 @@ void ControllerWidget::on_optionsButton_clicked()
     }
 }
 
-void ControllerWidget::on_CustomButton_released(CustomButton* button)
+void ControllerWidget::on_MappingButton_Released(MappingButton* button)
 {
     if (this->currentButton != nullptr)
     {
@@ -524,11 +799,23 @@ void ControllerWidget::on_CustomButton_released(CustomButton* button)
     this->disableAllChildren();
 }
 
-void ControllerWidget::on_CustomButton_TimerFinished(CustomButton* button)
+void ControllerWidget::on_AddMappingButton_Released(MappingButton* button)
+{
+    this->addMappingToButton = true;
+    button->click();
+}
+
+void ControllerWidget::on_RemoveMappingButton_Released(MappingButton* button)
+{
+    button->RemoveLastInputData();
+}
+
+void ControllerWidget::on_MappingButton_TimerFinished(MappingButton* button)
 {
     if (this->currentButton == button)
     {
-        this->currentButton = nullptr;
+        this->currentButton      = nullptr;
+        this->addMappingToButton = false;
     }
 
     button->RestoreState();
@@ -536,11 +823,12 @@ void ControllerWidget::on_CustomButton_TimerFinished(CustomButton* button)
     this->enableAllChildren();
 }
 
-void ControllerWidget::on_CustomButton_DataSet(CustomButton* button)
+void ControllerWidget::on_MappingButton_DataSet(MappingButton* button)
 {
     this->enableAllChildren();
     this->removeDuplicates(button);
-    this->currentButton = nullptr;
+    this->currentButton      = nullptr;
+    this->addMappingToButton = false;
 }
 
 void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
@@ -561,6 +849,12 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             if ((event->type == SDL_CONTROLLERBUTTONDOWN) ||
                 (event->type == SDL_CONTROLLERBUTTONUP))
             { // gamepad button
+                if (!this->isCurrentJoystickGameController &&
+                    this->optionsDialogSettings.FilterEventsForButtons)
+                {
+                    return;
+                }
+
                 joystickId = event->cbutton.which;
                 inputType = InputType::GamepadButton;
                 sdlButton = event->cbutton.button;
@@ -569,6 +863,12 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             }
             else
             { // joystick button
+                if (this->isCurrentJoystickGameController &&
+                    this->optionsDialogSettings.FilterEventsForButtons)
+                {
+                    return;
+                }
+
                 joystickId = event->jbutton.which;
                 inputType = InputType::JoystickButton;
                 sdlButton = event->jbutton.button;
@@ -587,12 +887,24 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             {
                 if (sdlButtonPressed)
                 {
-                    this->currentButton->SetInputData(
-                        inputType, 
-                        sdlButton,
-                        0,
-                        sdlButtonName
-                    );
+                    if (this->addMappingToButton)
+                    {
+                        this->currentButton->AddInputData(
+                            inputType, 
+                            sdlButton,
+                            0,
+                            sdlButtonName
+                        );
+                    }
+                    else
+                    {
+                        this->currentButton->SetInputData(
+                            inputType, 
+                            sdlButton,
+                            0,
+                            sdlButtonName
+                        );
+                    }
                 }
                 break;
             }
@@ -600,8 +912,7 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             // update controller button state
             for (auto& button : this->buttonWidgetMappings)
             {
-                if (button.buttonWidget->GetInputType() == inputType &&
-                    button.buttonWidget->GetInputData() == sdlButton)
+                if (button.buttonWidget->HasInputData(inputType, sdlButton))
                 {
                     this->controllerImageWidget->SetButtonState(button.button, sdlButtonPressed);
                 }
@@ -610,8 +921,7 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             // update controller analog stick state
             for (auto& joystick : this->joystickWidgetMappings)
             {
-                if (joystick.buttonWidget->GetInputType() == inputType &&
-                    joystick.buttonWidget->GetInputData() == sdlButton)
+                if (joystick.buttonWidget->HasInputData(inputType, sdlButton))
                 {
                     switch (joystick.direction)
                     {
@@ -655,6 +965,12 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
 
             if (event->type == SDL_CONTROLLERAXISMOTION)
             { // gamepad axis
+                if (!this->isCurrentJoystickGameController &&
+                    this->optionsDialogSettings.FilterEventsForAxis)
+                {
+                    return;
+                }
+
                 joystickId = event->caxis.which;
                 inputType = InputType::GamepadAxis;
                 sdlAxis = event->caxis.axis;
@@ -664,6 +980,12 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             }
             else
             { // joystick axis
+                if (this->isCurrentJoystickGameController &&
+                    this->optionsDialogSettings.FilterEventsForAxis)
+                {
+                    return;
+                }
+
                 joystickId = event->jaxis.which;
                 inputType = InputType::JoystickAxis;
                 sdlAxis = event->jaxis.axis;
@@ -689,24 +1011,24 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             {
                 if (sdlAxisButtonPressed)
                 {
-                    // invert axis for left, right & z trigger mappings
-                    if (this->optionsDialogSettings.InvertAxis)
+                    if (this->addMappingToButton)
                     {
-                        if (this->currentButton == this->leftTriggerButton ||
-                            this->currentButton == this->rightTriggerButton ||
-                            this->currentButton == this->zTriggerButton)
-                        {
-                            sdlAxisDirection = (sdlAxisDirection == 1 ? 0 : 1);
-                            sdlAxisName = "axis " + QString::number(sdlAxis);
-                            sdlAxisName += sdlAxisDirection > 0 ? "+" : "-";
-                        }
+                        this->currentButton->AddInputData(
+                            inputType, 
+                            sdlAxis,
+                            sdlAxisDirection,
+                            sdlAxisName
+                        );
                     }
-                    this->currentButton->SetInputData(
-                        inputType, 
-                        sdlAxis,
-                        sdlAxisDirection,
-                        sdlAxisName
-                    );
+                    else
+                    {
+                        this->currentButton->SetInputData(
+                            inputType, 
+                            sdlAxis,
+                            sdlAxisDirection,
+                            sdlAxisName
+                        );
+                    }
                 }
                 break;
             }
@@ -714,9 +1036,7 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             // update controller button state
             for (auto& button : this->buttonWidgetMappings)
             {
-                if (button.buttonWidget->GetInputType() == inputType &&
-                    button.buttonWidget->GetInputData() == sdlAxis &&
-                    button.buttonWidget->GetExtraInputData() == sdlAxisDirection)
+                if (button.buttonWidget->HasInputData(inputType, sdlAxis, sdlAxisDirection))
                 {
                     this->controllerImageWidget->SetButtonState(button.button, sdlAxisButtonPressed);
                 }
@@ -725,9 +1045,7 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             // update controller analog stick state
             for (auto& joystick : this->joystickWidgetMappings)
             {
-                if (joystick.buttonWidget->GetInputType() == inputType &&
-                    joystick.buttonWidget->GetInputData() == sdlAxis &&
-                    joystick.buttonWidget->GetExtraInputData() == sdlAxisDirection)
+                if (joystick.buttonWidget->HasInputData(inputType, sdlAxis, sdlAxisDirection))
                 {
                     const int value = -(double)((double)sdlAxisValue / SDL_AXIS_PEAK * 100);
 
@@ -770,12 +1088,24 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             {
                 if (sdlButtonPressed)
                 {
-                    this->currentButton->SetInputData(
-                        InputType::Keyboard, 
-                        sdlButton,
-                        0,
-                        SDL_GetScancodeName(sdlButton)
-                    );
+                    if (this->addMappingToButton)
+                    {
+                        this->currentButton->AddInputData(
+                            InputType::Keyboard, 
+                            sdlButton,
+                            0,
+                            SDL_GetScancodeName(sdlButton)
+                        );
+                    }
+                    else
+                    {
+                        this->currentButton->SetInputData(
+                            InputType::Keyboard, 
+                            sdlButton,
+                            0,
+                            SDL_GetScancodeName(sdlButton)
+                        );
+                    }
                 }
                 break;
             }
@@ -783,8 +1113,7 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             // update controller button state
             for (auto& button : this->buttonWidgetMappings)
             {
-                if (button.buttonWidget->GetInputType() == InputType::Keyboard &&
-                    button.buttonWidget->GetInputData() == sdlButton)
+                if (button.buttonWidget->HasInputData(InputType::Keyboard, sdlButton))
                 {
                     this->controllerImageWidget->SetButtonState(button.button, sdlButtonPressed);
                 }
@@ -793,8 +1122,7 @@ void ControllerWidget::on_MainDialog_SdlEvent(SDL_Event* event)
             // update controller analog stick state
             for (auto& joystick : this->joystickWidgetMappings)
             {
-                if (joystick.buttonWidget->GetInputType() == InputType::Keyboard &&
-                    joystick.buttonWidget->GetInputData() == sdlButton)
+                if (joystick.buttonWidget->HasInputData(InputType::Keyboard, sdlButton))
                 {
                     switch (joystick.direction)
                     {
@@ -841,13 +1169,29 @@ void ControllerWidget::on_MainDialog_SdlEventPollFinished()
 
 bool ControllerWidget::IsPluggedIn()
 {
-    return this->controllerPluggedCheckBox->isChecked();
+    return this->inputDeviceComboBox->currentData().toInt() != (int)InputDeviceType::None;
 }
 
-void ControllerWidget::SetSettingsSection(QString section)
+void ControllerWidget::SetOnlyLoadGameProfile(bool value)
+{
+    this->onlyLoadGameProfile = value;
+
+    // update UI element
+    this->addProfileButton->setDisabled(value);
+}
+
+void ControllerWidget::SetSettingsSection(QString profile, QString section)
 {
     this->settingsSection = section;
-    this->profileComboBox->addItem("Main", section);
+    if (!this->onlyLoadGameProfile)
+    {
+        this->profileComboBox->addItem(profile, section);
+    }
+}
+
+void ControllerWidget::SetInitialized(bool value)
+{
+    this->initialized = value;
 }
 
 void ControllerWidget::LoadSettings()
@@ -858,7 +1202,7 @@ void ControllerWidget::LoadSettings()
     }
 
     QString section = this->settingsSection;
-    QString gameSection;
+    std::vector<std::string> userProfiles;
 
     // if the main profile section doesn't exist,
     // save default settings
@@ -875,58 +1219,193 @@ void ControllerWidget::LoadSettings()
     if (CoreGetCurrentRomSettings(romSettings) &&
         CoreGetCurrentRomHeader(romHeader))
     {
-        gameSection = section + " Game " + QString::fromStdString(romSettings.MD5);
+        this->gameSection = section + " Game " + QString::fromStdString(romSettings.MD5);
 
         // use internal rom name
         QString internalName = QString::fromStdString(romHeader.Name);
 
-        // add game specific profile
-        this->profileComboBox->addItem(internalName, gameSection);
+        // add game specific profile when 
+        // it doesn't exist yet
+        int index = this->profileComboBox->findData(this->gameSection);
+        if (index == -1)
+        {
+            this->profileComboBox->addItem(internalName, this->gameSection);
+        }
 
         // if a game specific section exists,
         // select it in the profile combobox
         // and use it to load the settings
-        if (CoreSettingsSectionExists(gameSection.toStdString()))
+        if (CoreSettingsSectionExists(this->gameSection.toStdString()) ||
+            this->onlyLoadGameProfile)
         {
-            this->profileComboBox->setCurrentText(internalName);
-            section = gameSection;
+            // check if the key 'UseGameProfile' exists,
+            // if it doesn't then use the profile,
+            // else check if it's true and use it,
+            // or if we're only loading the game profile
+            if (this->onlyLoadGameProfile ||
+                !CoreSettingsKeyExists(this->gameSection.toStdString(), "UseGameProfile") ||
+                CoreSettingsGetBoolValue(SettingsID::Input_UseGameProfile, this->gameSection.toStdString()))
+            {
+                this->profileComboBox->setCurrentText(internalName);
+
+                // only use game section if it exists
+                if (CoreSettingsSectionExists(this->gameSection.toStdString()))
+                {
+                    section = this->gameSection;
+                }
+            }
         }
     }
 
-    this->LoadSettings(section);
+    // try to add all the user's profiles when we're not only loading the
+    // game profile
+    if (!this->onlyLoadGameProfile)
+    {
+        // clear profiles list
+        profiles.clear();
+
+        userProfiles = CoreSettingsGetStringListValue(SettingsID::Input_Profiles);
+        for (const std::string& profile : userProfiles)
+        {
+            QString profileSection = this->getUserProfileSectionName(QString::fromStdString(profile));
+
+            // ensure the profile section exists,
+            // if it does, add it when it doesn't
+            // exist yet
+            if (CoreSettingsSectionExists(profileSection.toStdString()))
+            {
+                // add to profiles list
+                this->profiles.push_back(profileSection);
+
+                int index = this->profileComboBox->findData(profileSection);
+                if (index == -1)
+                {
+                    this->profileComboBox->addItem(QString::fromStdString(profile), profileSection);
+                }
+            }
+        }
+    }
+
+    this->LoadSettings(section, true);
 }
 
-void ControllerWidget::LoadSettings(QString sectionQString)
+void ControllerWidget::LoadSettings(QString sectionQString, bool loadUserProfile)
 {
     std::string section = sectionQString.toStdString();
+    std::string useProfile;
 
-    // do nothing if the section doesn't exist
-    if (!CoreSettingsSectionExists(section))
+    // if the removed profiles contain
+    // the section, don't load it
+    if (this->removedProfiles.contains(sectionQString) &&
+        !this->addedProfiles.contains(sectionQString))
     {
         return;
     }
 
-    this->controllerPluggedCheckBox->setChecked(CoreSettingsGetBoolValue(SettingsID::Input_PluggedIn, section));
+    // do nothing if the section doesn't exist
+    if (!CoreSettingsSectionExists(section))
+    {
+        // fallback to main section for per game profiles
+        if (this->isSectionGameProfile(sectionQString))
+        {
+            sectionQString = this->settingsSection;
+            section        = this->settingsSection.toStdString();
+        }
+        else
+        {
+            return;
+        }
+    }
+
+    // see if the profile contains the UseProfile setting,
+    // if it does, see if that profile exists, then load
+    // that instead
+    useProfile = CoreSettingsGetStringValue(SettingsID::Input_UseProfile, section);
+    if (!this->onlyLoadGameProfile && loadUserProfile && !useProfile.empty())
+    {
+        QString profileSection = this->getUserProfileSectionName(QString::fromStdString(useProfile));
+
+        int index = this->profileComboBox->findData(profileSection);
+        if (index != -1)
+        {
+            this->profileComboBox->setCurrentIndex(index);
+            this->LoadSettings(profileSection);
+            return;
+        }
+    }
+
+    // keep backwards compatibility with versions before v0.3.9
+    if (CoreSettingsKeyExists(section, "Sensitivity"))
+    {
+        this->analogStickSensitivitySlider->setValue(CoreSettingsGetIntValue(SettingsID::Input_Sensitivity, section));
+    }
+    else
+    {
+        this->analogStickSensitivitySlider->setValue(100);
+    }
+
     this->deadZoneSlider->setValue(CoreSettingsGetIntValue(SettingsID::Input_Deadzone, section));
     this->optionsDialogSettings.RemoveDuplicateMappings = CoreSettingsGetBoolValue(SettingsID::Input_RemoveDuplicateMappings, section);
-    this->optionsDialogSettings.InvertAxis = CoreSettingsGetBoolValue(SettingsID::Input_InvertAxis, section);
     this->optionsDialogSettings.ControllerPak = CoreSettingsGetIntValue(SettingsID::Input_Pak, section);
     this->optionsDialogSettings.GameboyRom = CoreSettingsGetStringValue(SettingsID::Input_GameboyRom, section);
     this->optionsDialogSettings.GameboySave = CoreSettingsGetStringValue(SettingsID::Input_GameboySave, section);
 
+    // keep backwards compatibility with old profiles
+    if (CoreSettingsKeyExists(section, "FilterEventsForButtons") &&
+        CoreSettingsKeyExists(section, "FilterEventsForAxis"))
+    {
+        this->optionsDialogSettings.FilterEventsForButtons = CoreSettingsGetBoolValue(SettingsID::Input_FilterEventsForButtons, section);
+        this->optionsDialogSettings.FilterEventsForAxis = CoreSettingsGetBoolValue(SettingsID::Input_FilterEventsForAxis, section);
+    }
+    else
+    {
+        this->optionsDialogSettings.FilterEventsForButtons = true;
+        this->optionsDialogSettings.FilterEventsForAxis = true;
+    }
+
     for (auto& buttonSetting : this->buttonSettingMappings)
     {
-        enum InputType type = (InputType)CoreSettingsGetIntValue(buttonSetting.inputTypeSettingsId, section);
-        std::string    name = CoreSettingsGetStringValue(buttonSetting.nameSettingsId, section);
-        int            data = CoreSettingsGetIntValue(buttonSetting.dataSettingsId, section);
-        int            extraData = CoreSettingsGetIntValue(buttonSetting.extraDataSettingsId, section);
+        buttonSetting.button->Clear();
 
-        buttonSetting.button->SetInputData(type, data, extraData, QString::fromStdString(name));
+        std::vector<int> types         = CoreSettingsGetIntListValue(buttonSetting.inputTypeSettingsId, section);
+        std::vector<std::string> names = CoreSettingsGetStringListValue(buttonSetting.nameSettingsId, section);
+        std::vector<int> data          = CoreSettingsGetIntListValue(buttonSetting.dataSettingsId, section);
+        std::vector<int> extraData     = CoreSettingsGetIntListValue(buttonSetting.extraDataSettingsId, section);
+
+        int count = std::min(extraData.size(), std::min(types.size(), std::min(names.size(), data.size())));
+
+        if (count == 0)
+        { // attempt to load old profile type
+            types.push_back(CoreSettingsGetIntValue(buttonSetting.inputTypeSettingsId, section));
+            names.push_back(CoreSettingsGetStringValue(buttonSetting.nameSettingsId, section));
+            data.push_back(CoreSettingsGetIntValue(buttonSetting.dataSettingsId, section));
+            extraData.push_back(CoreSettingsGetIntValue(buttonSetting.extraDataSettingsId, section));
+            count = 1;
+        }
+
+        // add all input data
+        for (int i = 0; i < count; i++)
+        {
+            buttonSetting.button->AddInputData((InputType)types[i], data[i], extraData[i], QString::fromStdString(names.at(i)));
+        }
     }
 
     // force refresh some UI elements
+    this->CheckInputDeviceSettings();
     this->on_deadZoneSlider_valueChanged(this->deadZoneSlider->value());
-    this->on_controllerPluggedCheckBox_toggled(this->IsPluggedIn());
+    this->setPluggedIn(this->IsPluggedIn());
+}
+
+void ControllerWidget::LoadUserProfileSettings()
+{
+    QString section = this->getCurrentSettingsSection();
+
+    if (!this->isSectionUserProfile(section))
+    {
+        return;
+    }
+
+    this->LoadSettings(section);
 }
 
 void ControllerWidget::SaveDefaultSettings()
@@ -939,26 +1418,22 @@ void ControllerWidget::SaveDefaultSettings()
     std::string section = this->settingsSection.toStdString();
 
     CoreSettingsSetValue(SettingsID::Input_PluggedIn, section, false);
-    CoreSettingsSetValue(SettingsID::Input_DeviceName, section, std::string("Keyboard"));
-    CoreSettingsSetValue(SettingsID::Input_DeviceNum, section, -1);
+    CoreSettingsSetValue(SettingsID::Input_DeviceName, section, std::string("None"));
+    CoreSettingsSetValue(SettingsID::Input_DeviceNum, section, (int)InputDeviceType::None);
     CoreSettingsSetValue(SettingsID::Input_Deadzone, section, 9);
+    CoreSettingsSetValue(SettingsID::Input_Sensitivity, section, 100);
     CoreSettingsSetValue(SettingsID::Input_Pak, section, 0);
-#ifdef _WIN32
     CoreSettingsSetValue(SettingsID::Input_RemoveDuplicateMappings, section, true);
-#else
-    CoreSettingsSetValue(SettingsID::Input_RemoveDuplicateMappings, section, false);
-#endif // _WIN32
-    CoreSettingsSetValue(SettingsID::Input_InvertAxis, section, true);
+    CoreSettingsSetValue(SettingsID::Input_FilterEventsForButtons, section, true);
+    CoreSettingsSetValue(SettingsID::Input_FilterEventsForAxis, section, true);
 
     for (auto& buttonSetting : this->buttonSettingMappings)
     {
-        CoreSettingsSetValue(buttonSetting.inputTypeSettingsId, section, (int)InputType::Invalid);
-        CoreSettingsSetValue(buttonSetting.nameSettingsId, section, std::string(" "));
-        CoreSettingsSetValue(buttonSetting.dataSettingsId, section, 0);
-        CoreSettingsSetValue(buttonSetting.extraDataSettingsId, section, 0);
+        CoreSettingsSetValue(buttonSetting.inputTypeSettingsId, section, std::vector<int>({ (int)InputType::Invalid }));
+        CoreSettingsSetValue(buttonSetting.nameSettingsId, section, std::vector<std::string>({ std::string() }));
+        CoreSettingsSetValue(buttonSetting.dataSettingsId, section, std::vector<int>({ 0 }));
+        CoreSettingsSetValue(buttonSetting.extraDataSettingsId, section, std::vector<int>({ 0 }));
     }
-
-    CoreSettingsSave();
 }
 
 void ControllerWidget::SaveSettings()
@@ -967,36 +1442,159 @@ void ControllerWidget::SaveSettings()
     {
         return;
     }
-    
+
+    // when we're only loading the game profile,
+    // we should only save when anything has changed
+    if (this->onlyLoadGameProfile && 
+        !this->hasAnyGameSettingChanged())
+    {
+        return;
+    }
+
+    this->SaveSettings(this->getCurrentSettingsSection());
+
+    // delete all removed profile sections
+    for (QString section : this->removedProfiles)
+    {
+        if (!this->addedProfiles.contains(section))
+        {
+            CoreSettingsDeleteSection(section.toStdString());
+        }
+    }
+}
+
+void ControllerWidget::SaveUserProfileSettings()
+{
+    QString section = this->getCurrentSettingsSection();
+
+    // only save when we're a user profile
+    if (!this->isSectionUserProfile(section))
+    {
+        return;
+    }
+
+    this->SaveSettings(section);
+}
+
+void ControllerWidget::SaveSettings(QString section)
+{
     QString deviceName;
-    int deviceNum;
-    std::string section = this->getCurrentSettingsSection().toStdString();
+    int     deviceNum;
+
+    std::string mainSettingsSection = this->settingsSection.toStdString();
+    std::string sectionStr          = section.toStdString();
+
+    // when the section is a user profile,
+    // make sure we inform the profile to use
+    // that user profile instead
+    if (this->isSectionUserProfile(section))
+    {
+        CoreSettingsSetValue(SettingsID::Input_UseProfile, mainSettingsSection, this->profileComboBox->currentText().toStdString());
+    }
+    else
+    {
+        CoreSettingsSetValue(SettingsID::Input_UseProfile, mainSettingsSection, std::string(""));
+    }
+
+    // when section is a game specific profile,
+    // make sure we tell it whether or not to use it
+    if (this->isSectionGameProfile(section))
+    {
+        CoreSettingsSetValue(SettingsID::Input_UseGameProfile, sectionStr, true);
+    }
+    else if (!this->gameSection.isEmpty() &&
+        CoreSettingsSectionExists(this->gameSection.toStdString()))
+    {
+        CoreSettingsSetValue(SettingsID::Input_UseGameProfile, this->gameSection.toStdString(), false);
+    }
 
     this->GetCurrentInputDevice(deviceName, deviceNum, true);
 
-    CoreSettingsSetValue(SettingsID::Input_PluggedIn, section, this->IsPluggedIn());
-    CoreSettingsSetValue(SettingsID::Input_DeviceName, section, deviceName.toStdString());
-    CoreSettingsSetValue(SettingsID::Input_DeviceNum, section, deviceNum);
-    CoreSettingsSetValue(SettingsID::Input_Deadzone, section, this->deadZoneSlider->value());
-    CoreSettingsSetValue(SettingsID::Input_Pak, section, this->optionsDialogSettings.ControllerPak);
-    CoreSettingsSetValue(SettingsID::Input_GameboyRom, section, this->optionsDialogSettings.GameboyRom);
-    CoreSettingsSetValue(SettingsID::Input_GameboySave, section, this->optionsDialogSettings.GameboySave);
-    CoreSettingsSetValue(SettingsID::Input_RemoveDuplicateMappings, section, this->optionsDialogSettings.RemoveDuplicateMappings);
-    CoreSettingsSetValue(SettingsID::Input_InvertAxis, section, this->optionsDialogSettings.InvertAxis);
+    CoreSettingsSetValue(SettingsID::Input_PluggedIn, sectionStr, this->IsPluggedIn());
+    CoreSettingsSetValue(SettingsID::Input_DeviceName, sectionStr, deviceName.toStdString());
+    CoreSettingsSetValue(SettingsID::Input_DeviceNum, sectionStr, deviceNum);
+    CoreSettingsSetValue(SettingsID::Input_Deadzone, sectionStr, this->deadZoneSlider->value());
+    CoreSettingsSetValue(SettingsID::Input_Sensitivity, sectionStr, this->analogStickSensitivitySlider->value());
+    CoreSettingsSetValue(SettingsID::Input_Pak, sectionStr, this->optionsDialogSettings.ControllerPak);
+    CoreSettingsSetValue(SettingsID::Input_GameboyRom, sectionStr, this->optionsDialogSettings.GameboyRom);
+    CoreSettingsSetValue(SettingsID::Input_GameboySave, sectionStr, this->optionsDialogSettings.GameboySave);
+    CoreSettingsSetValue(SettingsID::Input_RemoveDuplicateMappings, sectionStr, this->optionsDialogSettings.RemoveDuplicateMappings);
+    CoreSettingsSetValue(SettingsID::Input_FilterEventsForButtons, sectionStr, this->optionsDialogSettings.FilterEventsForButtons);
+    CoreSettingsSetValue(SettingsID::Input_FilterEventsForAxis, sectionStr, this->optionsDialogSettings.FilterEventsForAxis);
 
     for (auto& buttonSetting : this->buttonSettingMappings)
     {
-        CoreSettingsSetValue(buttonSetting.inputTypeSettingsId, section, (int)buttonSetting.button->GetInputType());
-        CoreSettingsSetValue(buttonSetting.nameSettingsId, section, buttonSetting.button->text().toStdString());
-        CoreSettingsSetValue(buttonSetting.dataSettingsId, section, buttonSetting.button->GetInputData());
-        CoreSettingsSetValue(buttonSetting.extraDataSettingsId, section, buttonSetting.button->GetExtraInputData());
+        CoreSettingsSetValue(buttonSetting.inputTypeSettingsId, sectionStr, buttonSetting.button->GetInputType());
+        CoreSettingsSetValue(buttonSetting.nameSettingsId, sectionStr, buttonSetting.button->GetInputText());
+        CoreSettingsSetValue(buttonSetting.dataSettingsId, sectionStr, buttonSetting.button->GetInputData());
+        CoreSettingsSetValue(buttonSetting.extraDataSettingsId, sectionStr, buttonSetting.button->GetExtraInputData());
+    }
+}
+
+void ControllerWidget::RevertSettings()
+{
+    QList<QString> sections;
+
+    // add all sections from profiles
+    sections.append(this->profiles);
+
+    // add section with profiles list
+    sections.append("Rosalie's Mupen GUI - Input Plugin");
+
+    // revert each section
+    for (QString section : sections)
+    {
+        CoreSettingsRevertSection(section.toStdString());
     }
 
-    CoreSettingsSave();
+    // don't compare profiles,
+    // when we're only loading 
+    // the game profile
+    if (this->onlyLoadGameProfile)
+    {
+        return;
+    }
+
+    // delete all sections for added & removed profiles,
+    // which aren't in the base profile section list
+    sections.clear();
+    sections.append(this->addedProfiles);
+    sections.append(this->removedProfiles);
+    for (QString section : sections)
+    {
+        if (!this->profiles.contains(section) &&
+            CoreSettingsSectionExists(section.toStdString()))
+        {
+            CoreSettingsDeleteSection(section.toStdString());
+        }
+    }
 }
 
 void ControllerWidget::SetCurrentJoystickID(SDL_JoystickID joystickId)
 {
     this->currentJoystickId = joystickId;
+}
+
+void ControllerWidget::SetIsCurrentJoystickGameController(bool isGameController)
+{
+    this->isCurrentJoystickGameController = isGameController;
+}
+
+void ControllerWidget::AddUserProfile(QString name, QString section)
+{
+    int index = this->profileComboBox->findData(section);
+    if (index == -1)
+    {
+        this->profileComboBox->addItem(name, section);
+    }
+}
+
+void ControllerWidget::RemoveUserProfile(QString name, QString section)
+{
+    int index = this->profileComboBox->findData(section);
+    if (index != -1)
+    {
+        this->profileComboBox->removeItem(index);
+    }
 }
 

@@ -11,12 +11,16 @@
 #include "Core.hpp"
 #include "ConvertStringEncoding.hpp"
 
+#include <iostream>
+
 //
 // Local Variables
 //
 
 static bool l_SetupCallbacks = false;
 static std::function<void(enum CoreDebugMessageType, std::string, std::string)> l_DebugCallbackFunc;
+static std::function<void(enum CoreStateCallbackType, int)> l_StateCallbackFunc;
+static bool l_PrintCallbacks = false;
 
 //
 // Internal Functions
@@ -42,21 +46,38 @@ void CoreDebugCallback(void* context, int level, const char* message)
         messageString = CoreConvertStringEncoding(message, CoreStringEncoding::Shift_JIS);
     }
 
+    if (l_PrintCallbacks)
+    {
+        std::cout << contextString << messageString << std::endl;
+    }
+
     l_DebugCallbackFunc((CoreDebugMessageType)level, contextString, messageString);
 }
 
 void CoreStateCallback(void* context, m64p_core_param param, int value)
 {
-    // TODO
+    if (!l_SetupCallbacks)
+    {
+        return;
+    }
+
+    l_StateCallbackFunc((CoreStateCallbackType)param, value);
 }
 
 //
 // Exported Functions
 //
 
-bool CoreSetupCallbacks(std::function<void(enum CoreDebugMessageType, std::string, std::string)> debugCallbackFunc)
+bool CoreSetupCallbacks(std::function<void(enum CoreDebugMessageType, std::string, std::string)> debugCallbackFunc,
+                        std::function<void(enum CoreStateCallbackType, int)> stateCallbackFunc)
 {
     l_DebugCallbackFunc = debugCallbackFunc;
+    l_StateCallbackFunc = stateCallbackFunc;
     l_SetupCallbacks = true;
     return true;
+}
+
+void CoreSetPrintDebugCallback(bool enabled)
+{
+    l_PrintCallbacks = enabled;
 }

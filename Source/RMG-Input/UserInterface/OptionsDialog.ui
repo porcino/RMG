@@ -203,9 +203,16 @@
         </widget>
        </item>
        <item>
-        <widget class="QCheckBox" name="invertAxisCheckBox">
+        <widget class="QCheckBox" name="filterEventsForButtonsCheckBox">
          <property name="text">
-          <string>Invert Axes Mapped To LRZ</string>
+          <string>Filter Events Based On Joystick Type For Buttons</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="filterEventsForAxisCheckBox">
+         <property name="text">
+          <string>Filter Events Based On Joystick Type For Axis</string>
          </property>
         </widget>
        </item>

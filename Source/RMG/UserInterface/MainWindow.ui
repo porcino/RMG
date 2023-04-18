@@ -63,6 +63,30 @@
      <addaction name="actionSlot_8"/>
      <addaction name="actionSlot_9"/>
     </widget>
+    <widget class="QMenu" name="menuSpeedFactor">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="title">
+      <string>Speed Factor</string>
+     </property>
+     <property name="icon">
+      <iconset theme="speed-line">
+       <normaloff>.</normaloff>.</iconset>
+     </property>
+     <addaction name="actionSpeed25"/>
+     <addaction name="actionSpeed50"/>
+     <addaction name="actionSpeed75"/>
+     <addaction name="actionSpeed100"/>
+     <addaction name="actionSpeed125"/>
+     <addaction name="actionSpeed150"/>
+     <addaction name="actionSpeed175"/>
+     <addaction name="actionSpeed200"/>
+     <addaction name="actionSpeed225"/>
+     <addaction name="actionSpeed250"/>
+     <addaction name="actionSpeed275"/>
+     <addaction name="actionSpeed300"/>
+    </widget>
     <addaction name="action_System_StartRom"/>
     <addaction name="action_System_OpenCombo"/>
     <addaction name="separator"/>
@@ -73,6 +97,7 @@
     <addaction name="action_System_Screenshot"/>
     <addaction name="separator"/>
     <addaction name="action_System_LimitFPS"/>
+    <addaction name="menuSpeedFactor"/>
     <addaction name="separator"/>
     <addaction name="action_System_SaveState"/>
     <addaction name="action_System_SaveAs"/>
@@ -122,6 +147,8 @@
     </property>
     <addaction name="action_Help_Github"/>
     <addaction name="separator"/>
+    <addaction name="action_Help_Update"/>
+    <addaction name="separator"/>
     <addaction name="action_Help_About"/>
    </widget>
    <addaction name="menuSystem"/>
@@ -135,10 +162,13 @@
     <string>toolBar</string>
    </property>
    <property name="movable">
-    <bool>false</bool>
+    <bool>true</bool>
    </property>
    <property name="toolButtonStyle">
     <enum>Qt::ToolButtonTextUnderIcon</enum>
+   </property>
+   <property name="floatable">
+    <bool>false</bool>
    </property>
    <attribute name="toolBarArea">
     <enum>TopToolBarArea</enum>
@@ -530,6 +560,78 @@
    </property>
    <property name="text">
     <string>Uniform Size (Grid View)</string>
+   </property>
+  </action>
+  <action name="actionSpeed25">
+   <property name="checkable">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>25%</string>
+   </property>
+  </action>
+  <action name="actionSpeed50">
+   <property name="text">
+    <string>50%</string>
+   </property>
+  </action>
+  <action name="actionSpeed100">
+   <property name="text">
+    <string>100%</string>
+   </property>
+  </action>
+  <action name="actionSpeed125">
+   <property name="text">
+    <string>125%</string>
+   </property>
+  </action>
+  <action name="actionSpeed150">
+   <property name="text">
+    <string>150%</string>
+   </property>
+  </action>
+  <action name="actionSpeed200">
+   <property name="text">
+    <string>200%</string>
+   </property>
+  </action>
+  <action name="actionSpeed75">
+   <property name="text">
+    <string>75%</string>
+   </property>
+  </action>
+  <action name="actionSpeed175">
+   <property name="text">
+    <string>175%</string>
+   </property>
+  </action>
+  <action name="actionSpeed225">
+   <property name="text">
+    <string>225%</string>
+   </property>
+  </action>
+  <action name="actionSpeed250">
+   <property name="text">
+    <string>250%</string>
+   </property>
+  </action>
+  <action name="actionSpeed275">
+   <property name="text">
+    <string>275%</string>
+   </property>
+  </action>
+  <action name="actionSpeed300">
+   <property name="text">
+    <string>300%</string>
+   </property>
+  </action>
+  <action name="action_Help_Update">
+   <property name="icon">
+    <iconset theme="download-line">
+     <normaloff>.</normaloff>.</iconset>
+   </property>
+   <property name="text">
+    <string>Check For Updates</string>
    </property>
   </action>
  </widget>

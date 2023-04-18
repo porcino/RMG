@@ -70,6 +70,7 @@ void RomSearcherThread::searchDirectory(QString directory)
     filter << "*.NDD";
     filter << "*.D64";
     filter << "*.ZIP";
+    filter << "*.7Z";
 
     QDirIterator::IteratorFlag flag = this->recursive ? 
         QDirIterator::Subdirectories : 
@@ -82,9 +83,16 @@ void RomSearcherThread::searchDirectory(QString directory)
     bool            ret;
     int             count = 0;
 
+    QList<QString> roms;
     while (romDirIt.hasNext())
     {
-        QString file = romDirIt.next();
+        roms.push_back(romDirIt.next());
+    }
+
+    int romAmount = std::min(this->maxItems, (int)roms.size());
+    for (int i = 0; i < romAmount; i++)
+    {
+        QString file = roms.at(i);
 
         QElapsedTimer timer;
         timer.start();
@@ -95,14 +103,11 @@ void RomSearcherThread::searchDirectory(QString directory)
         }
         else
         { // no cache entry
-            // open rom, retrieve rom settings & header 
+            // open rom, retrieve rom settings, header & type
             ret = CoreOpenRom(file.toStdU32String()) &&
                 CoreGetCurrentRomSettings(settings) && 
-                CoreGetCurrentRomHeader(header);
-            if (ret)
-            {
-                type = CoreGetRomType();
-            }
+                CoreGetCurrentRomHeader(header) &&
+                CoreGetRomType(type);
             // always close the ROM,
             // even when retrieving rom info failed
             ret = CoreCloseRom() && ret;
@@ -111,15 +116,10 @@ void RomSearcherThread::searchDirectory(QString directory)
                 CoreAddCachedRomHeaderAndSettings(file.toStdU32String(), type, header, settings);
             }
         }
-        
+
         if (ret)
         {
-            if (count++ >= this->maxItems)
-            {
-                break;
-            }
-
-            emit this->RomFound(file, type, header, settings);
+            emit this->RomFound(file, type, header, settings, (i + 1), romAmount);
         }
 
         if (this->stop)
